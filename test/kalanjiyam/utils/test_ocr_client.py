@@ -499,3 +499,111 @@ def test_run_ocr_remote_fallback_gemma_json_bboxes(flask_app, tmp_path):
         assert len(res.bounding_boxes) == 2
 
 
+def test_run_ocr_remote_fallback_dots_ocr_json_bboxes(flask_app, tmp_path):
+    """When fallback runner receives Dots OCR JSON with categories and bboxes, it should parse figures and pixel bboxes."""
+    from PIL import Image
+    img = tmp_path / "page.jpg"
+    Image.new("RGB", (1500, 2200), color="white").save(img)
+
+    with flask_app.app_context():
+        flask_app.config.update(
+            OCR_SERVICE_URL="http://10.195.100.51:4000/v1",
+            OCR_SERVICE_API_KEY="test-key",
+            OCR_SERVICE_TIMEOUT=30,
+        )
+
+        mock_ocr_resp = MagicMock()
+        mock_ocr_resp.status_code = 500
+        mock_ocr_resp.text = '{"error":{"message":"OCR is not supported for provider: openai."}}'
+
+        dots_json = (
+            '[\n'
+            '  {"bbox": [88, 38, 935, 70], "category": "Page-header", "text": "Page Header"},\n'
+            '  {"bbox": [91, 94, 703, 122], "category": "Section-header", "text": "Section Title"},\n'
+            '  {"bbox": [96, 555, 788, 781], "category": "Picture"},\n'
+            '  {"bbox": [88, 800, 790, 950], "category": "Table", "text": "<table><tr><td>1</td></tr></table>"}\n'
+            ']'
+        )
+
+        mock_chat_resp = MagicMock()
+        mock_chat_resp.status_code = 200
+        mock_chat_resp.json.return_value = {
+            "choices": [{"message": {"role": "assistant", "content": dots_json}}]
+        }
+
+        with patch("kalanjiyam.utils.ocr_client.httpx.Client") as client_cls:
+            client = client_cls.return_value.__enter__.return_value
+            client.post.side_effect = [mock_ocr_resp, mock_chat_resp]
+
+            from kalanjiyam.utils.ocr_client import run_ocr_remote
+
+            res = run_ocr_remote(img, "dots_ocr", "en")
+
+            # Check that the chat request used model "dots-ocr" and included layout categories in the prompt
+            chat_call_args = client.post.call_args_list[1]
+            chat_payload = chat_call_args[1]["json"]
+            assert chat_payload["model"] == "dots-ocr"
+            assert "Picture" in chat_payload["messages"][0]["content"][0]["text"]
+            assert chat_payload["max_tokens"] == 8192
+
+        assert res.engine == "dots_ocr"
+        assert res.content_format == "blocks"
+        assert res.blocks is not None
+        assert len(res.blocks) == 4
+
+        # Block 0: Page-header -> heading, pixel coordinates preserved [88, 38, 935, 70]
+        assert res.blocks[0]["type"] == "heading"
+        assert res.blocks[0]["bbox"] == [88, 38, 935, 70]
+        assert res.blocks[0]["content"] == "Page Header"
+
+        # Block 1: Section-header -> heading
+        assert res.blocks[1]["type"] == "heading"
+        assert res.blocks[1]["bbox"] == [91, 94, 703, 122]
+
+        # Block 2: Picture -> figure, empty text preserved, pixel bbox intact
+        assert res.blocks[2]["type"] == "figure"
+        assert res.blocks[2]["bbox"] == [96, 555, 788, 781]
+        assert res.blocks[2]["content"] == ""
+
+        # Block 3: Table -> table
+        assert res.blocks[3]["type"] == "table"
+        assert res.blocks[3]["bbox"] == [88, 800, 790, 950]
+
+        assert len(res.bounding_boxes) == 4
+
+
+def test_parse_vlm_json_blocks_truncated_recovery():
+    """Verify that a truncated JSON array recovers all completed items before the cutoff."""
+    from kalanjiyam.utils.ocr_client import _parse_vlm_json_blocks
+
+    truncated_json = (
+        '[\n'
+        '  {"bbox": [10, 20, 100, 50], "category": "Text", "text": "Hello world"},\n'
+        '  {"bbox": [10, 60, 200, 150], "category": "Picture"},\n'
+        '  {"bbox": [10, 160, 200, 250'
+    )
+    blocks, boxes, text = _parse_vlm_json_blocks(truncated_json, 1000, 1000)
+    assert blocks is not None
+    assert len(blocks) == 2
+    assert blocks[0]["type"] == "paragraph"
+    assert blocks[0]["content"] == "Hello world"
+    assert blocks[1]["type"] == "figure"
+
+
+def test_parse_vlm_json_blocks_nested_keys():
+    """Verify that nested keys like 'layout' or 'elements' are handled."""
+    from kalanjiyam.utils.ocr_client import _parse_vlm_json_blocks
+
+    layout_json = (
+        '{"layout": [\n'
+        '  {"bbox": [50, 50, 400, 100], "category": "Title", "text": "Doc Title"}\n'
+        ']}'
+    )
+    blocks, boxes, text = _parse_vlm_json_blocks(layout_json, 1000, 1000)
+    assert blocks is not None
+    assert len(blocks) == 1
+    assert blocks[0]["type"] == "heading"
+    assert blocks[0]["content"] == "Doc Title"
+
+
+
