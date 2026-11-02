@@ -240,6 +240,7 @@ def _scale_vlm_coords(
     page_width: int | None,
     page_height: int | None,
     is_ymin_first: bool = False,
+    is_pixel_coords: bool = False,
 ) -> list[int]:
     """Convert normalized (0-1 or 0-1000) or pixel coordinates to integer [x1, y1, x2, y2]."""
     if is_ymin_first:
@@ -247,20 +248,38 @@ def _scale_vlm_coords(
     else:
         x0, y0, x1, y1 = v0, v1, v2, v3
 
-    max_c = max(x0, y0, x1, y1)
-    if max_c <= 1.5 and page_width and page_height:
-        rx1, ry1 = round(x0 * page_width), round(y0 * page_height)
-        rx2, ry2 = round(x1 * page_width), round(y1 * page_height)
-    elif max_c <= 1000.0 and page_width and page_height:
-        rx1 = round(x0 * page_width / 1000.0)
-        ry1 = round(y0 * page_height / 1000.0)
-        rx2 = round(x1 * page_width / 1000.0)
-        ry2 = round(y1 * page_height / 1000.0)
+    if is_pixel_coords:
+        rx1, ry1, rx2, ry2 = int(round(x0)), int(round(y0)), int(round(x1)), int(round(y1))
     else:
-        rx1, ry1, rx2, ry2 = int(x0), int(y0), int(x1), int(y1)
+        max_c = max(x0, y0, x1, y1)
+        if max_c <= 1.5 and page_width and page_height:
+            rx1, ry1 = round(x0 * page_width), round(y0 * page_height)
+            rx2, ry2 = round(x1 * page_width), round(y1 * page_height)
+        elif max_c <= 1000.0 and page_width and page_height:
+            rx1 = round(x0 * page_width / 1000.0)
+            ry1 = round(y0 * page_height / 1000.0)
+            rx2 = round(x1 * page_width / 1000.0)
+            ry2 = round(y1 * page_height / 1000.0)
+        else:
+            rx1, ry1, rx2, ry2 = int(round(x0)), int(round(y0)), int(round(x1)), int(round(y1))
 
     bx1, bx2 = min(rx1, rx2), max(rx1, rx2)
     by1, by2 = min(ry1, ry2), max(ry1, ry2)
+
+    if page_width:
+        bx1 = max(0, min(bx1, page_width))
+        bx2 = max(0, min(bx2, page_width))
+    else:
+        bx1 = max(0, bx1)
+        bx2 = max(0, bx2)
+
+    if page_height:
+        by1 = max(0, min(by1, page_height))
+        by2 = max(0, min(by2, page_height))
+    else:
+        by1 = max(0, by1)
+        by2 = max(0, by2)
+
     return [int(bx1), int(by1), int(bx2), int(by2)]
 
 
@@ -349,7 +368,11 @@ def _parse_chandra_html(
 
 
 def _parse_vlm_json_blocks(
-    raw_text: str, page_width: int | None, page_height: int | None
+    raw_text: str,
+    page_width: int | None,
+    page_height: int | None,
+    is_ymin_first: bool | None = None,
+    is_pixel_coords: bool | None = None,
 ) -> tuple[list[dict] | None, list[tuple[float, float, float, float, str]], str]:
     """Parse JSON blocks containing bbox coordinates from vision LLMs."""
     if not raw_text:
@@ -372,6 +395,15 @@ def _parse_vlm_json_blocks(
         except Exception:
             pass
 
+    # If the JSON array was truncated at token limit, attempt to recover by closing at last complete object
+    if data is None and trimmed.startswith("["):
+        last_brace = trimmed.rfind("}")
+        if last_brace != -1:
+            try:
+                data = json.loads(trimmed[:last_brace + 1] + "]")
+            except Exception:
+                pass
+
     if data is None:
         m = re.search(r"(\[\s*\{.*\}\s*\])", trimmed, re.DOTALL)
         if m:
@@ -379,13 +411,49 @@ def _parse_vlm_json_blocks(
                 data = json.loads(m.group(1))
             except Exception:
                 pass
+        else:
+            m2 = re.search(r"(\[\s*\{[\s\S]*\})", trimmed)
+            if m2:
+                try:
+                    data = json.loads(m2.group(1) + "]")
+                except Exception:
+                    pass
 
     if data is None:
         return None, [], raw_text
 
-    items = data.get("blocks") if isinstance(data, dict) and "blocks" in data else data
+    items = None
+    if isinstance(data, dict):
+        for k in ("blocks", "layout", "elements", "results", "regions", "items"):
+            if k in data and isinstance(data[k], list):
+                items = data[k]
+                break
+        if items is None and "pages" in data and isinstance(data["pages"], list) and data["pages"]:
+            page0 = data["pages"][0]
+            if isinstance(page0, dict):
+                for k in ("blocks", "layout", "elements", "results", "regions", "items"):
+                    if k in page0 and isinstance(page0[k], list):
+                        items = page0[k]
+                        break
+    elif isinstance(data, list):
+        items = data
+
     if not isinstance(items, list):
         return None, [], raw_text
+
+    # Detect coordinate conventions across all items
+    has_category = any(isinstance(it, dict) and "category" in it for it in items)
+    any_coord_gt_1000 = False
+    for it in items:
+        if isinstance(it, dict):
+            b = it.get("bbox") or it.get("box_2d") or it.get("box")
+            if isinstance(b, (list, tuple)):
+                if any(isinstance(c, (int, float)) and c > 1000.0 for c in b):
+                    any_coord_gt_1000 = True
+                    break
+
+    auto_pixel = is_pixel_coords if is_pixel_coords is not None else (has_category or any_coord_gt_1000)
+    auto_ymin = is_ymin_first if is_ymin_first is not None else (not has_category)
 
     blocks: list[dict] = []
     boxes: list[tuple[float, float, float, float, str]] = []
@@ -399,13 +467,13 @@ def _parse_vlm_json_blocks(
             or item.get("box_2d")
             or item.get("box")
         )
-        is_ymin_first = True
+        item_ymin_first = auto_ymin
         if not raw_box and all(k in item for k in ("ymin", "xmin", "ymax", "xmax")):
             raw_box = [item["ymin"], item["xmin"], item["ymax"], item["xmax"]]
-            is_ymin_first = True
+            item_ymin_first = True
         elif not raw_box and all(k in item for k in ("x1", "y1", "x2", "y2")):
             raw_box = [item["x1"], item["y1"], item["x2"], item["y2"]]
-            is_ymin_first = False
+            item_ymin_first = False
 
         if not isinstance(raw_box, (list, tuple)) or len(raw_box) < 4:
             continue
@@ -413,7 +481,9 @@ def _parse_vlm_json_blocks(
         try:
             bbox = _scale_vlm_coords(
                 float(raw_box[0]), float(raw_box[1]), float(raw_box[2]), float(raw_box[3]),
-                page_width, page_height, is_ymin_first=is_ymin_first,
+                page_width, page_height,
+                is_ymin_first=item_ymin_first,
+                is_pixel_coords=auto_pixel,
             )
         except (TypeError, ValueError):
             continue
@@ -422,12 +492,12 @@ def _parse_vlm_json_blocks(
             continue
 
         content = str(item.get("text") or item.get("content") or item.get("text_content") or "").strip()
-        raw_type = str(item.get("type") or item.get("label") or "paragraph").lower()
+        raw_type = str(item.get("type") or item.get("label") or item.get("category") or "paragraph").lower()
         if "head" in raw_type or "title" in raw_type:
             btype = "heading"
         elif "table" in raw_type:
             btype = "table"
-        elif any(w in raw_type for w in ("image", "figure", "picture")):
+        elif any(w in raw_type for w in ("image", "figure", "picture", "diagram", "photo")):
             btype = "figure"
         elif "caption" in raw_type:
             btype = "caption"
@@ -497,11 +567,26 @@ def _run_ocr_chat_completions(
 
     if model_id in ("gemma-4", "llm-gemma"):
         ocr_prompt = (
-            "Perform optical character recognition (OCR) on this image. Detect all text blocks and layout elements. "
+            "Perform optical character recognition (OCR) on this image. Detect all text blocks, tables, and visual elements (figures/pictures/images). "
             "Extract all text verbatim preserving original layout, headings, and line breaks. "
-            "Output as a JSON array of objects with keys: \"type\" (paragraph, heading, or table), "
-            "\"bbox\" ([ymin, xmin, ymax, xmax] in 0-1000 normalized scale), and \"text\". "
+            "Output as a JSON array of objects with keys: \"type\" (paragraph, heading, table, or figure), "
+            "\"bbox\" ([ymin, xmin, ymax, xmax] in 0-1000 normalized scale), and \"text\" (leave empty for figures/images). "
             "Output ONLY valid JSON without any markdown formatting or commentary."
+        )
+    elif model_id == "dots-ocr":
+        ocr_prompt = (
+            "Please output the layout information from the PDF image, including each layout element's bbox, its category, and the corresponding text content within the bbox. \n"
+            "1. Bbox format: [x1, y1, x2, y2] \n"
+            "2. Layout Categories: The possible categories are ['Caption', 'Footnote', 'Formula', 'List-item', 'Page-footer', 'Page-header', 'Picture', 'Section-header', 'Table', 'Text', 'Title']. \n"
+            "3. Text Extraction & Formatting Rules: \n"
+            "- Picture: For the 'Picture' category, the text field should be omitted. \n"
+            "- Formula: Format its text as LaTeX. \n"
+            "- Table: Format its text as HTML. \n"
+            "- All Others (Text, Title, etc.): Format their text as Markdown. \n"
+            "4. Constraints: \n"
+            "- The output text must be the original text from the image, with no translation. \n"
+            "- All layout elements must be sorted according to human reading order. \n"
+            "5. Final Output: The entire output must be a single JSON object."
         )
     else:
         ocr_prompt = (
@@ -525,7 +610,7 @@ def _run_ocr_chat_completions(
                 ],
             }
         ],
-        "max_tokens": 4096,
+        "max_tokens": 8192,
         "temperature": 0.0,
     }
 
@@ -549,6 +634,13 @@ def _run_ocr_chat_completions(
                 detail,
             )
             chat_payload["model"] = "gemma-4"
+            chat_payload["messages"][0]["content"][0]["text"] = (
+                "Perform optical character recognition (OCR) on this image. Detect all text blocks, tables, and visual elements (figures/pictures/images). "
+                "Extract all text verbatim preserving original layout, headings, and line breaks. "
+                "Output as a JSON array of objects with keys: \"type\" (paragraph, heading, table, or figure), "
+                "\"bbox\" ([ymin, xmin, ymax, xmax] in 0-1000 normalized scale), and \"text\" (leave empty for figures/images). "
+                "Output ONLY valid JSON without any markdown formatting or commentary."
+            )
             with httpx.Client(timeout=timeout, trust_env=False) as client:
                 res = client.post(chat_url, headers=chat_headers, json=chat_payload)
             if res.status_code < 400:
@@ -568,7 +660,13 @@ def _run_ocr_chat_completions(
 
     parsed_blocks, parsed_boxes, clean_text = _parse_chandra_html(extracted_text, page_width, page_height)
     if not parsed_blocks:
-        parsed_blocks, parsed_boxes, clean_text = _parse_vlm_json_blocks(extracted_text, page_width, page_height)
+        parsed_blocks, parsed_boxes, clean_text = _parse_vlm_json_blocks(
+            extracted_text,
+            page_width,
+            page_height,
+            is_ymin_first=(model_id in ("gemma-4", "llm-gemma")),
+            is_pixel_coords=(model_id == "dots-ocr"),
+        )
 
     if parsed_blocks:
         extracted_text = clean_text
