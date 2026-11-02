@@ -73,17 +73,27 @@ def crop_elements_from_image(
     """
     Scale the source image to match layout coordinates and crop identified visual elements.
     Updates layout_data block content to contain the img tag referencing the cropped image.
+    Preserves visual block types (figure, image, etc.) without mutating them to paragraph.
     """
+    if isinstance(layout_data, list):
+        layout_data = {"blocks": layout_data}
+
     page_width = layout_data.get("page_width")
     page_height = layout_data.get("page_height")
-
-    if not page_width or not page_height:
-        logger.warning("JSON layout data must contain 'page_width' and 'page_height'. Skipping crop.")
-        return []
 
     if not os.path.exists(image_path):
         logger.warning(f"Source image not found: {image_path}. Skipping crop.")
         return []
+
+    if not page_width or not page_height:
+        try:
+            with Image.open(image_path) as _im:
+                page_width, page_height = _im.size
+                layout_data["page_width"] = page_width
+                layout_data["page_height"] = page_height
+        except Exception as e:
+            logger.warning("Could not determine page dimensions from image %s: %s", image_path, e)
+            return []
 
     if not file_prefix and image_path:
         from pathlib import Path
@@ -99,7 +109,7 @@ def crop_elements_from_image(
             saved_paths = []
             blocks = layout_data.get("blocks", []) or []
             for block in blocks:
-                block_type = str(block.get("type", "")).lower()
+                block_type = str(block.get("type") or block.get("category") or block.get("label") or "").lower()
                 block_id = block.get("id")
                 bbox = block.get("bbox")
 
@@ -125,10 +135,11 @@ def crop_elements_from_image(
                     )
                     saved_paths.append(saved_path)
 
-                    # Update block content to display the image
-                    if project_slug:
-                        block["content"] = f'<img class="max-w-full max-h-full h-auto rounded-lg object-contain mx-auto" src="{saved_path}">'
-                        block["type"] = "paragraph"
+                    # Update block content to display the image while preserving visual figure type
+                    block["content"] = f'<img class="max-w-full max-h-full h-auto rounded-lg object-contain mx-auto" src="{saved_path}">'
+                    block["image_path"] = saved_path
+                    if block.get("type") not in image_types:
+                        block["type"] = "figure"
             return saved_paths
     except Exception as e:
         logger.exception(f"Failed to crop elements from image {image_path}: {e}")
@@ -146,17 +157,30 @@ def crop_elements_from_pdf(
     """
     Render the PDF page directly at the layout coordinate resolution and crop identified visual elements.
     Updates layout_data block content to contain the img tag referencing the cropped image.
+    Preserves visual block types (figure, image, etc.) without mutating them to paragraph.
     """
+    if isinstance(layout_data, list):
+        layout_data = {"blocks": layout_data}
+
     page_width = layout_data.get("page_width")
     page_height = layout_data.get("page_height")
-
-    if not page_width or not page_height:
-        logger.warning("JSON layout data must contain 'page_width' and 'page_height'. Skipping crop.")
-        return []
 
     if not os.path.exists(pdf_path):
         logger.warning(f"Source PDF not found: {pdf_path}. Skipping crop.")
         return []
+
+    if not page_width or not page_height:
+        try:
+            _doc = fitz.open(pdf_path)
+            if 0 <= page_num < len(_doc):
+                _p = _doc[page_num]
+                page_width, page_height = int(_p.rect.width), int(_p.rect.height)
+                layout_data["page_width"] = page_width
+                layout_data["page_height"] = page_height
+            _doc.close()
+        except Exception as e:
+            logger.warning("Could not determine page dimensions from PDF %s: %s", pdf_path, e)
+            return []
 
     if not file_prefix:
         from pathlib import Path
@@ -183,7 +207,7 @@ def crop_elements_from_pdf(
         saved_paths = []
         blocks = layout_data.get("blocks", []) or []
         for block in blocks:
-            block_type = str(block.get("type", "")).lower()
+            block_type = str(block.get("type") or block.get("category") or block.get("label") or "").lower()
             block_id = block.get("id")
             bbox = block.get("bbox")
 
@@ -209,10 +233,11 @@ def crop_elements_from_pdf(
                 )
                 saved_paths.append(saved_path)
 
-                # Update block content to display the image
-                if project_slug:
-                    block["content"] = f'<img class="max-w-full h-auto rounded-lg" src="{saved_path}">'
-                    block["type"] = "paragraph"
+                # Update block content to display the image while preserving visual figure type
+                block["content"] = f'<img class="max-w-full h-auto rounded-lg" src="{saved_path}">'
+                block["image_path"] = saved_path
+                if block.get("type") not in image_types:
+                    block["type"] = "figure"
 
         doc.close()
         return saved_paths
@@ -279,9 +304,15 @@ def crop_ocr_response_elements(
         if "content" in updated:
             if isinstance(original, dict):
                 original["content"] = updated["content"]
-                original["type"] = updated.get("type", original.get("type"))
+                if "image_path" in updated:
+                    original["image_path"] = updated["image_path"]
+                if updated.get("type"):
+                    original["type"] = updated["type"]
             else:
                 setattr(original, "content", updated["content"])
-                setattr(original, "type", updated.get("type", getattr(original, "type", "paragraph")))
+                if "image_path" in updated:
+                    setattr(original, "image_path", updated["image_path"])
+                if updated.get("type"):
+                    setattr(original, "type", updated["type"])
 
     return saved_paths
