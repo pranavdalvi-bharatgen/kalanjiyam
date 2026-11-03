@@ -605,8 +605,8 @@ def _run_ocr_chat_completions(
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": ocr_prompt},
                     {"type": "image_url", "image_url": {"url": data_url}},
+                    {"type": "text", "text": ocr_prompt},
                 ],
             }
         ],
@@ -634,13 +634,17 @@ def _run_ocr_chat_completions(
                 detail,
             )
             chat_payload["model"] = "gemma-4"
-            chat_payload["messages"][0]["content"][0]["text"] = (
+            gemma_prompt = (
                 "Perform optical character recognition (OCR) on this image. Detect all text blocks, tables, and visual elements (figures/pictures/images). "
                 "Extract all text verbatim preserving original layout, headings, and line breaks. "
                 "Output as a JSON array of objects with keys: \"type\" (paragraph, heading, table, or figure), "
                 "\"bbox\" ([ymin, xmin, ymax, xmax] in 0-1000 normalized scale), and \"text\" (leave empty for figures/images). "
                 "Output ONLY valid JSON without any markdown formatting or commentary."
             )
+            chat_payload["messages"][0]["content"] = [
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": gemma_prompt},
+            ]
             with httpx.Client(timeout=timeout, trust_env=False) as client:
                 res = client.post(chat_url, headers=chat_headers, json=chat_payload)
             if res.status_code < 400:
