@@ -7,9 +7,15 @@ A Python utility to parse GLM-OCR layout JSON files, scale and crop document vis
 """
 
 import os
+import sys
 import json
 import argparse
+from pathlib import Path
 from typing import List
+
+# Ensure repository root is on sys.path
+project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project_root))
 
 # Import cropping logic from app package
 from kalanjiyam.utils.ocr_cropper import (
@@ -22,7 +28,9 @@ def process_document(
     doc_path: str,
     json_path: str,
     output_dir: str,
-    page_num: int = 0
+    page_num: int = 0,
+    project_slug: str | None = None,
+    save_json_path: str | None = None,
 ) -> List[str]:
     """
     Helper function to load the JSON payload, check file type of doc_path, and route to proper cropper.
@@ -40,13 +48,30 @@ def process_document(
     ext = os.path.splitext(doc_path)[1].lower()
     
     if ext == ".pdf":
-        return crop_elements_from_pdf(doc_path, layout_data, output_dir, page_num=page_num)
+        results = crop_elements_from_pdf(
+            pdf_path=doc_path,
+            layout_data=layout_data,
+            project_slug=project_slug,
+            output_dir=output_dir,
+            page_num=page_num,
+        )
     else:
         # Attempt to open as image
         try:
-            return crop_elements_from_image(doc_path, layout_data, output_dir)
+            results = crop_elements_from_image(
+                image_path=doc_path,
+                layout_data=layout_data,
+                project_slug=project_slug,
+                output_dir=output_dir,
+            )
         except Exception as e:
             raise ValueError(f"Unsupported document format or error loading file as image: {doc_path}. Error: {e}")
+
+    if save_json_path:
+        with open(save_json_path, "w", encoding="utf-8") as out_f:
+            json.dump(layout_data, out_f, indent=2, ensure_ascii=False)
+
+    return results
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Crop visual elements from a document using GLM-OCR layout coordinates.")
@@ -54,11 +79,20 @@ if __name__ == "__main__":
     parser.add_argument("--json-file", required=True, help="Path to the GLM-OCR layout JSON response")
     parser.add_argument("--output-dir", default="extracted_elements", help="Directory to save the cropped images")
     parser.add_argument("--page", type=int, default=0, help="PDF page index to crop from (0-indexed, default is 0)")
+    parser.add_argument("--project-slug", default=None, help="Optional Kalanjiyam project slug to save into app storage")
+    parser.add_argument("--save-json", default=None, help="Optional file path to save updated layout JSON")
 
     args = parser.parse_args()
 
     try:
-        results = process_document(args.doc, args.json_file, args.output_dir, page_num=args.page)
+        results = process_document(
+            doc_path=args.doc,
+            json_path=args.json_file,
+            output_dir=args.output_dir,
+            page_num=args.page,
+            project_slug=args.project_slug,
+            save_json_path=args.save_json,
+        )
         print(f"\nSuccessfully cropped {len(results)} visual element(s).")
     except Exception as exc:
         print(f"\nError processing document: {exc}")
