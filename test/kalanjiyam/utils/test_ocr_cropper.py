@@ -180,3 +180,147 @@ def test_process_document_standalone_script_without_flask_context(tmp_path):
         updated = json.load(f)
     assert updated["blocks"][0]["type"] == "figure"
     assert "<img " in updated["blocks"][0]["content"]
+
+
+def test_slugify_figure_name():
+    from kalanjiyam.utils.ocr_cropper import slugify_figure_name
+
+    assert slugify_figure_name("Fig. 1: Ancient Temple") == "Fig_1_Ancient_Temple"
+    assert slugify_figure_name("<p>Figure 2 — Map</p>") == "Figure_2_Map"
+    assert slugify_figure_name("चित्र १: सरस्वती देवी") == "चित्र_१_सरस्वती_देवी"
+    assert slugify_figure_name("படம் 1: கோயில்") == "படம்_1_கோயில்"
+    assert slugify_figure_name("") == ""
+    assert slugify_figure_name(None) == ""
+
+
+def test_find_figure_caption_explicit_and_adjacent():
+    from kalanjiyam.utils.ocr_cropper import find_figure_caption
+
+    blocks = [
+        {
+            "id": "b1",
+            "type": "figure",
+            "bbox": [50, 50, 400, 300],
+            "content": "",
+        },
+        {
+            "id": "b2",
+            "type": "caption",
+            "bbox": [50, 310, 400, 335],
+            "content": "Figure 1: Traditional Inscription",
+        },
+        {
+            "id": "b3",
+            "type": "paragraph",
+            "bbox": [50, 360, 400, 500],
+            "content": "Normal text body starts here.",
+        },
+    ]
+
+    # Test explicit caption block
+    cap = find_figure_caption(
+        blocks=blocks,
+        figure_index=0,
+        figure_bbox=[50, 50, 400, 300],
+        page_height=1000,
+    )
+    assert cap == "Figure 1: Traditional Inscription"
+
+    # Test adjacent paragraph with figure prefix when type is paragraph
+    blocks_para = [
+        {
+            "id": "b1",
+            "type": "figure",
+            "bbox": [50, 50, 400, 300],
+            "content": "",
+        },
+        {
+            "id": "b2",
+            "type": "paragraph",
+            "bbox": [50, 305, 400, 330],
+            "content": "Fig. 2 - Architectural Plan",
+        },
+    ]
+    cap_para = find_figure_caption(
+        blocks=blocks_para,
+        figure_index=0,
+        figure_bbox=[50, 50, 400, 300],
+        page_height=1000,
+    )
+    assert cap_para == "Fig. 2 - Architectural Plan"
+
+
+def test_save_crop_to_storage_uses_actual_fig_name_and_uuid(tmp_path):
+    from kalanjiyam.utils.ocr_cropper import save_crop_to_storage
+    import re
+
+    img = Image.new("RGB", (50, 50), color="red")
+    out_dir = str(tmp_path / "crops")
+
+    # With figure_name
+    saved_path = save_crop_to_storage(
+        cropped_img=img,
+        block_id="b01",
+        output_dir=out_dir,
+        file_prefix="test_prefix",
+        figure_name="Figure 1: Temple Map",
+    )
+    filename = os.path.basename(saved_path)
+    # Pattern: {actualFigName}-{uuid}.png
+    assert filename.startswith("Figure_1_Temple_Map-")
+    assert filename.endswith(".png")
+    # UUID check (8 hex characters)
+    match = re.match(r"^Figure_1_Temple_Map-[0-9a-f]{8}\.png$", filename)
+    assert match is not None
+
+    # Without figure_name (fallback)
+    fallback_path = save_crop_to_storage(
+        cropped_img=img,
+        block_id="b01",
+        output_dir=out_dir,
+        file_prefix="p01",
+        figure_name=None,
+    )
+    fallback_name = os.path.basename(fallback_path)
+    assert fallback_name == "extracted_p01_b01.png"
+
+
+def test_crop_elements_from_image_with_caption_naming(tmp_path):
+    img_path = str(tmp_path / "page_with_fig.png")
+    out_dir = str(tmp_path / "output_crops")
+    Image.new("RGB", (500, 700), color="purple").save(img_path)
+
+    layout_data = {
+        "page_width": 500,
+        "page_height": 700,
+        "blocks": [
+            {
+                "id": "fig_101",
+                "type": "figure",
+                "bbox": [30, 40, 450, 350],
+                "content": "",
+            },
+            {
+                "id": "cap_102",
+                "type": "caption",
+                "bbox": [30, 360, 450, 390],
+                "content": "Figure 4: Bronze Sculpture",
+            },
+        ],
+    }
+
+    # Enabled caption naming
+    saved_paths = crop_elements_from_image(
+        image_path=img_path,
+        layout_data=layout_data,
+        project_slug=None,
+        output_dir=out_dir,
+        use_caption_naming=True,
+    )
+
+    assert len(saved_paths) == 1
+    assert os.path.exists(saved_paths[0])
+    base_name = os.path.basename(saved_paths[0])
+    assert base_name.startswith("Figure_4_Bronze_Sculpture-")
+    assert layout_data["blocks"][0].get("figure_name") == "Figure 4: Bronze Sculpture"
+
