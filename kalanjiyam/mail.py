@@ -31,3 +31,32 @@ def send_confirm_reset_password(username: str, email: str):
     msg = Message("[Kalanjiyam] Your password was reset", recipients=[email])
     msg.body = render_template("email/confirm-reset-password.txt", username=username)
     mailer.send(msg)
+
+
+def send_invite_welcome(username: str, email: str, org_name: str, role: str):
+    """Notify user that their account was created via org invite.
+
+    TODO: Activate once mail provider is configured.
+    """
+    # msg = Message(f"[{org_name}] Welcome to your organization", recipients=[email])
+    # msg.body = render_template(
+    #     "email/invite-welcome.txt",
+    #     username=username, org_name=org_name, role=role,
+    # )
+    # mailer.send(msg)
+    pass
+
+
+def send_invite_join_notification(admin_email: str, org_name: str, new_username: str, role: str):
+    """Notify org admin that a new user joined via invite link.
+
+    TODO: Activate once mail provider is configured.
+    """
+    # msg = Message(f"[Kalanjiyam] New member joined {org_name}", recipients=[admin_email])
+    # msg.body = render_template(
+    #     "email/invite-join-notification.txt",
+    #     org_name=org_name, new_username=new_username, role=role,
+    # )
+    # mailer.send(msg)
+    pass
+

@@ -1,0 +1,61 @@
+{% extends 'base-auth-form.html' %}
+{% import "macros/components.html" as components %}
+{% import "macros/forms.html" as mf %}
+
+{% block title %}{{ components.title(_('Join %(org_name)s', org_name=invite.org.name)) }}{% endblock %}
+
+{% block content %}
+<form method="POST" class="space-y-4">
+    {{ form.csrf_token }}
+    
+    <div class="mb-5 text-left">
+      <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-royalblue border border-blue-200 mb-2.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        </svg>
+        <span>{{ _('Organization Invitation') }}</span>
+      </div>
+      <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
+        {{ _('Join %(org_name)s', org_name=invite.org.name) }}
+      </h1>
+      <p class="text-xs sm:text-sm text-slate-500 font-medium mt-1">
+        {{ _('Create your account to join as %(role)s.', role=invite.role|upper) }}
+      </p>
+    </div>
+
+    {% if form.errors %}
+    <div class="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 space-y-1">
+      {% for field_name, errors in form.errors.items() %}
+        {% for error in errors %}
+          <p>{{ error }}</p>
+        {% endfor %}
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="google-input-group text-left">
+      <label for="username">{{ _('Username') }}</label>
+      {{ form.username(class_="google-auth-input", id="username", placeholder=_('Choose a username'), autocomplete="username") }}
+    </div> 
+
+    <div class="google-input-group text-left">
+      <label for="email">{{ _('Email') }}</label>
+      {{ form.email(class_="google-auth-input", id="email", placeholder=_('Enter your email address'), autocomplete="email") }}
+    </div> 
+        
+    <div class="google-input-group text-left">
+      <label for="password">{{ _('Password') }}</label>
+      {{ form.password(class_="google-auth-input", id="password", placeholder=_('Choose a strong password'), autocomplete="new-password") }}
+    </div>
+
+    <div class="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <a href="{{ url_for('auth.sign_in') }}" class="text-xs sm:text-sm font-semibold text-royalblue hover:underline order-2 sm:order-1">
+        {{ _('Sign in instead') }}
+      </a>
+
+      <button type="submit" class="google-auth-btn w-full sm:w-auto order-1 sm:order-2">
+        {{ _('Accept invite & join') }}
+      </button>
+    </div>
+</form>
+{% endblock %}

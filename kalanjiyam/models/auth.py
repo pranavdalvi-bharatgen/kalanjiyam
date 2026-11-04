@@ -1,6 +1,7 @@
 """Models related to user authentication and authorization."""
 
 from datetime import datetime
+import hashlib
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy import Text as Text_
@@ -142,3 +143,53 @@ class PasswordResetToken(Base):
     def check_token(self, raw_token: str) -> bool:
         """Check if the given token matches the user's hash."""
         return check_password_hash(self.token_hash, raw_token)
+
+
+class InviteToken(Base):
+    """An org-admin-generated token that lets users self-register with a preset role."""
+
+    __tablename__ = "invite_tokens"
+
+    #: Primary key.
+    id = pk()
+    #: The organization this invite belongs to.
+    org_id = Column(Integer, ForeignKey("groups.id"), nullable=False, index=True)
+    #: The admin who created this invite.
+    created_by_user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
+    #: Role to auto-assign on registration (e.g. "p1", "p2", "moderator").
+    role = Column(String, nullable=False)
+    #: SHA-256 hash of the raw token.
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    #: Human-readable label set by the admin (e.g. "P1 Batch - Nov 2026").
+    label = Column(String, nullable=True)
+    #: How many times this link has been used.
+    uses_count = Column(Integer, nullable=False, default=0)
+    #: When this token expires (None = never).
+    expires_at = Column(DateTime, nullable=True)
+    #: Whether the admin has manually revoked this token.
+    is_active = Column(Boolean, nullable=False, default=True)
+    #: Timestamp at which this token was created.
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    #: Relationships
+    org = relationship("Group", foreign_keys=[org_id])
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+
+    def set_token(self, raw_token: str):
+        """Hash and save the given token."""
+        self.token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    def check_token(self, raw_token: str) -> bool:
+        """Verify a raw token against the stored hash."""
+        return self.token_hash == hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    @property
+    def is_expired(self) -> bool:
+        return self.expires_at is not None and datetime.utcnow() >= self.expires_at
+
+    @property
+    def is_valid(self) -> bool:
+        return self.is_active and not self.is_expired
+

@@ -239,6 +239,48 @@ def register():
         return render_template("auth/register.html", form=form)
 
 
+@bp.route("/register/invite/<raw_token>", methods=["GET", "POST"])
+def register_via_invite(raw_token: str):
+    """Self-registration page tied to an org admin invite link."""
+    if current_user.is_authenticated:
+        logout_if_not_ok()
+        if current_user.is_authenticated:
+            return redirect(url_for("site.index"))
+
+    invite = q.get_invite_token_by_raw(raw_token)
+    if not invite or not invite.is_valid:
+        flash(_l("This invite link is invalid or has expired."), "error")
+        return redirect(url_for("auth.sign_in"))
+
+    form = SignupForm()
+    if request.method == "POST":
+        ip_address = request.remote_addr
+        fingerprint_id = request.cookies.get("device_fingerprint")
+        if is_rate_limited("register", ip_address=ip_address, fingerprint_id=fingerprint_id, limit=5, period_seconds=3600):
+            flash(_l("Too many registration attempts. Please try again later."), "error")
+            return render_template("auth/register-invite.html", form=form, invite=invite)
+        log_usage_action("register", ip_address=ip_address, fingerprint_id=fingerprint_id)
+
+    if form.validate_on_submit():
+        # Re-verify token validity prior to creating the user account
+        invite = q.get_invite_token_by_raw(raw_token)
+        if not invite or not invite.is_valid:
+            flash(_l("This invite link is invalid or has expired."), "error")
+            return redirect(url_for("auth.sign_in"))
+
+        user = q.create_user_via_invite(
+            username=form.username.data.strip().lower(),
+            email=form.email.data.strip().lower(),
+            raw_password=form.password.data,
+            invite_token=invite,
+        )
+        login_user(user, remember=True)
+        flash(_l("Welcome! Your account has been created."), "success")
+        return redirect(url_for(POST_AUTH_ROUTE))
+
+    return render_template("auth/register-invite.html", form=form, invite=invite)
+
+
 @bp.route("/sign-in", methods=["GET", "POST"])
 @bp.route("/login", methods=["GET", "POST"], endpoint="login")
 def sign_in():
