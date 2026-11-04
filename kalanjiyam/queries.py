@@ -4,14 +4,18 @@ We use this module to organize repetitive query logic and keep our views readabl
 For simple or adhoc queries, you can just write them in their corresponding view.
 """
 
+from datetime import datetime
 import functools
+import hashlib
 import os
+import secrets
 
 from flask import current_app
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import load_only, scoped_session, selectinload, sessionmaker
 
 import kalanjiyam.database as db
+import kalanjiyam.mail as mail
 
 # NOTE: this logic is copied from Flask-SQLAlchemy. We avoid Flask-SQLAlchemy
 # because we also need to access the database from a non-Flask context when
@@ -832,4 +836,143 @@ def project_belongs_to_any_group(project_id: int) -> bool:
         .first()
     )
     return row is not None
+
+
+# --- Invite Token Queries ---
+
+
+def create_invite_token(
+    *,
+    org_id: int,
+    created_by_user_id: int,
+    role: str,
+    label: str | None = None,
+    expires_at: datetime | None = None,
+) -> tuple[db.InviteToken, str]:
+    """Create a new invite token for an organization with a pre-set role.
+
+    Returns the created InviteToken DB record and the unhashed raw token string.
+    """
+    raw_token = secrets.token_urlsafe(32)
+    session = get_session()
+    record = db.InviteToken(
+        org_id=org_id,
+        created_by_user_id=created_by_user_id,
+        role=role,
+        label=label,
+        expires_at=expires_at,
+    )
+    record.set_token(raw_token)
+    session.add(record)
+    session.commit()
+    return record, raw_token
+
+
+def get_invite_token_by_raw(raw_token: str) -> db.InviteToken | None:
+    """Look up an active invite token by raw token string."""
+    if not raw_token:
+        return None
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    session = get_session()
+    return (
+        session.query(db.InviteToken)
+        .filter_by(token_hash=token_hash, is_active=True)
+        .first()
+    )
+
+
+def get_invite_tokens_for_org(org_id: int) -> list[db.InviteToken]:
+    """Return all invite tokens for an organization, newest first."""
+    session = get_session()
+    return (
+        session.query(db.InviteToken)
+        .filter_by(org_id=org_id)
+        .order_by(db.InviteToken.created_at.desc())
+        .all()
+    )
+
+
+def revoke_invite_token(token_id: int, org_id: int | None = None) -> bool:
+    """Deactivate a specific invite token. If org_id is provided, ensures token belongs to org."""
+    session = get_session()
+    query = session.query(db.InviteToken).filter_by(id=token_id)
+    if org_id is not None:
+        query = query.filter_by(org_id=org_id)
+    token = query.first()
+    if token:
+        token.is_active = False
+        session.add(token)
+        session.commit()
+        return True
+    return False
+
+
+def create_user_via_invite(
+    *,
+    username: str,
+    email: str,
+    raw_password: str,
+    invite_token: db.InviteToken,
+) -> db.User:
+    """Create a new user using an invite token.
+
+    Assigns the user directly to the organization and role specified in the invite,
+    marks is_verified=True, increments token usage, and notifies admin.
+    """
+    session = get_session()
+    user = db.User(
+        username=username,
+        email=email,
+        organization_id=invite_token.org_id,
+        is_verified=True,
+    )
+    user.set_password(raw_password)
+    session.add(user)
+    session.flush()
+
+    # Assign role
+    role_record = session.query(db.Role).filter_by(name=invite_token.role).first()
+    if not role_record:
+        role_record = db.Role(name=invite_token.role)
+        session.add(role_record)
+        session.flush()
+    user.roles.append(role_record)
+
+    # Add to organization group (UserGroups)
+    session.add(db.UserGroups(user_id=user.id, group_id=invite_token.org_id))
+
+    # Increment usage count on the token
+    db_token = session.query(db.InviteToken).filter_by(id=invite_token.id).first()
+    if db_token:
+        db_token.uses_count += 1
+        session.add(db_token)
+
+    session.commit()
+
+    # Trigger notification stubs (future email functionality)
+    org = session.query(db.Group).filter_by(id=invite_token.org_id).first()
+    org_name = org.name if org else "Organization"
+    admin_user = org.admin_user if org else None
+    admin_email = admin_user.email if admin_user else None
+
+    try:
+        mail.send_invite_welcome(
+            username=user.username,
+            email=user.email,
+            org_name=org_name,
+            role=invite_token.role,
+        )
+        if admin_email:
+            mail.send_invite_join_notification(
+                admin_email=admin_email,
+                org_name=org_name,
+                new_username=user.username,
+                role=invite_token.role,
+            )
+    except Exception:
+        # Don't let notification failure disrupt user registration
+        pass
+
+    return user
+
 

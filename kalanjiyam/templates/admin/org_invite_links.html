@@ -1,0 +1,344 @@
+{% extends 'admin/master.html' %}
+{% import 'macros/admin.html' as admin %}
+
+{% block title %}{{ _('Invite Links') }} | {{ org.name }} | {{ _('Admin Console') }}{% endblock %}
+
+{% block admin_sidebar %}
+{{ admin.nav('invite_links', current_user) }}
+{% endblock %}
+
+{% block content %}
+<!-- Header -->
+<div class="mb-6">
+  <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-200/80">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-2xl bg-royalblue/10 text-royalblue flex items-center justify-center shrink-0">
+        {{ admin.icon('link', class='w-5 h-5') }}
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
+            {{ _('Registration Invite Links') }}
+          </h1>
+          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-royalblue border border-blue-200">
+            {{ org.name }}
+          </span>
+        </div>
+        <p class="text-xs text-slate-500 font-medium mt-0.5">
+          {{ _('Create shareable multi-use registration links pre-assigned with specific roles.') }}
+        </p>
+      </div>
+    </div>
+
+    <div>
+      <a href="{{ url_for('org_admin_view.index') }}"
+         class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-royalblue text-xs font-semibold transition-all shadow-xs">
+        <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+        </svg>
+        <span>{{ _('Back to Dashboard') }}</span>
+      </a>
+    </div>
+  </div>
+</div>
+
+{% if created_invite_url %}
+<!-- Newly Created Link Banner -->
+<div class="mb-6 p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 shadow-sm">
+  <div class="flex items-start gap-3">
+    <div class="w-8 h-8 rounded-xl bg-royalblue text-white flex items-center justify-center shrink-0 mt-0.5">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+      </svg>
+    </div>
+    <div class="flex-1 min-w-0">
+      <h3 class="text-sm font-bold text-slate-900">
+        {{ _('Invite link created successfully!') }}
+      </h3>
+      <p class="text-xs text-slate-600 mt-1">
+        {{ _('Copy this registration link now. For your organization\'s security, the full link cannot be retrieved again after you leave this page.') }}
+      </p>
+
+      <div class="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        <input type="text" id="invite-url-input" readonly value="{{ created_invite_url }}"
+               onclick="this.select();"
+               class="flex-1 font-mono text-xs px-3.5 py-2.5 bg-white border border-blue-200 rounded-xl text-slate-800 shadow-xs focus:outline-none focus:ring-2 focus:ring-royalblue/30 selection:bg-blue-100">
+        <button type="button" id="copy-invite-btn"
+                onclick="copyInviteLink('invite-url-input', this)"
+                class="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-royalblue hover:bg-blue-700 shadow-xs transition-all shrink-0 cursor-pointer">
+          <svg id="copy-icon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path>
+          </svg>
+          <svg id="copied-icon" class="w-3.5 h-3.5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+          </svg>
+          <span id="copy-btn-text">{{ _('Copy Link') }}</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <!-- Create Link Form -->
+  <div class="lg:col-span-1">
+    <div class="bg-white rounded-2xl p-6 shadow-xs border border-slate-200 sticky top-6">
+      <div class="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
+        <div class="w-8 h-8 rounded-xl bg-blue-50 text-royalblue flex items-center justify-center shrink-0">
+          {{ admin.icon('user-plus', class='w-4 h-4') }}
+        </div>
+        <div>
+          <h2 class="text-sm font-bold text-slate-900">{{ _('Create Invite Link') }}</h2>
+          <p class="text-[11px] text-slate-500">{{ _('Users will register with this role') }}</p>
+        </div>
+      </div>
+
+      <form method="post" action="{{ url_for('org_admin_view.invite_links') }}" class="space-y-4">
+        {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
+        <input type="hidden" name="action" value="create_invite">
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+            {{ _('Assigned Role') }} <span class="text-red-500">*</span>
+          </label>
+          <select name="role" required
+                  class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-royalblue/30 focus:bg-white transition-all">
+            {% for r in allowed_roles %}
+              <option value="{{ r }}">
+                {% if r == 'p1' %}{{ _('P1 — Basic Proofer') }}
+                {% elif r == 'p2' %}{{ _('P2 — Advanced Proofer') }}
+                {% elif r == 'moderator' %}{{ _('Moderator') }}
+                {% else %}{{ r|upper }}
+                {% endif %}
+              </option>
+            {% endfor %}
+          </select>
+          <p class="text-[11px] text-slate-400 mt-1">
+            {{ _('Users registering with this link cannot change their role.') }}
+          </p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+            {{ _('Label / Cohort Note') }}
+          </label>
+          <input type="text" name="label" placeholder="{{ _('e.g., Nov 2026 Translators') }}"
+                 class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-royalblue/30 focus:bg-white transition-all">
+          <p class="text-[11px] text-slate-400 mt-1">
+            {{ _('Optional note to help you identify this link.') }}
+          </p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+            {{ _('Link Expiration') }} <span class="text-red-500">*</span>
+          </label>
+          <select name="expires_days" required
+                  class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-royalblue/30 focus:bg-white transition-all">
+            <option value="7">{{ _('7 days') }}</option>
+            <option value="30" selected>{{ _('30 days (default)') }}</option>
+            <option value="90">{{ _('90 days') }}</option>
+            <option value="365">{{ _('1 year') }}</option>
+          </select>
+          <p class="text-[11px] text-slate-400 mt-1">
+            {{ _('The link can be used multiple times until it expires or is revoked.') }}
+          </p>
+        </div>
+
+        <button type="submit"
+                class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-royalblue hover:bg-blue-700 text-white text-xs font-bold shadow-xs hover:shadow-md transition-all">
+          {{ admin.icon('link', class='w-4 h-4') }}
+          <span>{{ _('Generate Invite Link') }}</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Links Table -->
+  <div class="lg:col-span-2">
+    <div class="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+      <div class="p-5 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-bold text-slate-900">{{ _('Generated Invite Links') }}</h2>
+          <p class="text-xs text-slate-500 mt-0.5">
+            {{ _('%(count)s total link(s) created', count=tokens|length) }}
+          </p>
+        </div>
+      </div>
+
+      {% if not tokens %}
+      <div class="p-12 text-center">
+        <div class="w-12 h-12 rounded-2xl bg-slate-50 text-slate-400 flex items-center justify-center mx-auto mb-3">
+          {{ admin.icon('link', class='w-6 h-6') }}
+        </div>
+        <h3 class="text-sm font-bold text-slate-800">{{ _('No invite links yet') }}</h3>
+        <p class="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+          {{ _('Generate an invite link on the left to allow proofers and members to self-register into %(org_name)s.', org_name=org.name) }}
+        </p>
+      </div>
+      {% else %}
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+              <th class="py-3 px-4">{{ _('Label / Role') }}</th>
+              <th class="py-3 px-4">{{ _('Uses') }}</th>
+              <th class="py-3 px-4">{{ _('Created') }}</th>
+              <th class="py-3 px-4">{{ _('Expires') }}</th>
+              <th class="py-3 px-4">{{ _('Status') }}</th>
+              <th class="py-3 px-4 text-right">{{ _('Action') }}</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 text-xs">
+            {% for t in tokens %}
+            <tr class="hover:bg-slate-50/80 transition-colors">
+              <td class="py-3.5 px-4">
+                <div class="font-bold text-slate-900">
+                  {{ t.label or _('(No label)') }}
+                </div>
+                <div class="mt-0.5">
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200">
+                    {{ t.role }}
+                  </span>
+                </div>
+              </td>
+              <td class="py-3.5 px-4 font-semibold text-slate-800">
+                {{ t.uses_count }}
+              </td>
+              <td class="py-3.5 px-4 text-slate-500 font-medium">
+                {{ t.created_at.strftime('%Y-%m-%d') }}
+              </td>
+              <td class="py-3.5 px-4 text-slate-500 font-medium">
+                {% if t.expires_at %}
+                  {{ t.expires_at.strftime('%Y-%m-%d') }}
+                {% else %}
+                  <span class="text-slate-400">{{ _('Never') }}</span>
+                {% endif %}
+              </td>
+              <td class="py-3.5 px-4">
+                {% if not t.is_active %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200">
+                    {{ _('Revoked') }}
+                  </span>
+                {% elif t.is_expired %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                    {{ _('Expired') }}
+                  </span>
+                {% else %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    {{ _('Active') }}
+                  </span>
+                {% endif %}
+              </td>
+              <td class="py-3.5 px-4 text-right">
+                {% if t.is_valid %}
+                <form method="post" action="{{ url_for('org_admin_view.invite_links') }}"
+                      onsubmit="return confirm('{{ _('Are you sure you want to revoke this invite link? Users will no longer be able to use it to register.') }}')">
+                  {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
+                  <input type="hidden" name="action" value="revoke_invite">
+                  <input type="hidden" name="token_id" value="{{ t.id }}">
+                  <button type="submit"
+                          class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 transition-colors">
+                    {{ _('Revoke') }}
+                  </button>
+                </form>
+                {% else %}
+                  <span class="text-slate-400 text-xs">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block tail %}
+{{ super() if super is defined else '' }}
+<script>
+function copyInviteLink(inputId, btn) {
+  var input = document.getElementById(inputId);
+  if (!input) return;
+
+  var text = input.value;
+  input.focus();
+  input.select();
+  if (input.setSelectionRange) {
+    input.setSelectionRange(0, 99999);
+  }
+
+  function markSuccess() {
+    var copyIcon = document.getElementById('copy-icon');
+    var copiedIcon = document.getElementById('copied-icon');
+    var btnText = document.getElementById('copy-btn-text');
+
+    if (copyIcon) copyIcon.classList.add('hidden');
+    if (copiedIcon) copiedIcon.classList.remove('hidden');
+    if (btnText) btnText.textContent = "{{ _('Copied!') }}";
+
+    if (btn) {
+      btn.classList.remove('bg-royalblue', 'hover:bg-blue-700');
+      btn.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
+    }
+
+    setTimeout(function() {
+      if (copyIcon) copyIcon.classList.remove('hidden');
+      if (copiedIcon) copiedIcon.classList.add('hidden');
+      if (btnText) btnText.textContent = "{{ _('Copy Link') }}";
+      if (btn) {
+        btn.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
+        btn.classList.add('bg-royalblue', 'hover:bg-blue-700');
+      }
+    }, 2500);
+  }
+
+  function execFallback() {
+    try {
+      var successful = document.execCommand('copy');
+      if (successful) {
+        markSuccess();
+      } else {
+        var tempArea = document.createElement('textarea');
+        tempArea.value = text;
+        tempArea.style.position = 'fixed';
+        tempArea.style.left = '-9999px';
+        tempArea.style.top = '0';
+        document.body.appendChild(tempArea);
+        tempArea.focus();
+        tempArea.select();
+        var res = document.execCommand('copy');
+        document.body.removeChild(tempArea);
+        if (res) {
+          markSuccess();
+        } else {
+          promptManual();
+        }
+      }
+    } catch (e) {
+      promptManual();
+    }
+  }
+
+  function promptManual() {
+    input.focus();
+    input.select();
+    alert("{{ _('Press Ctrl+C (or Cmd+C) to copy link.') }}");
+  }
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(function() {
+      markSuccess();
+    }).catch(function() {
+      execFallback();
+    });
+  } else {
+    execFallback();
+  }
+}
+</script>
+{% endblock %}

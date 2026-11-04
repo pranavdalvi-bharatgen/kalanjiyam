@@ -27,7 +27,7 @@ from markupsafe import Markup
 from slugify import slugify
 import json
 import zipfile
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -3557,6 +3557,67 @@ class OrgAdminView(AdminBaseView):
         return render_template(
             "admin/org_user_create.html",
             org=org,
+            csrf_token=generate_csrf(),
+        )
+
+    @expose("/invite-links", methods=["GET", "POST"])
+    def invite_links(self):
+        org_id = require_org_admin()
+        org = q.group(org_id)
+        if org is None:
+            abort(404)
+
+        allowed_roles = {
+            db.SiteRole.P1.value,
+            db.SiteRole.P2.value,
+            db.SiteRole.MODERATOR.value,
+        }
+
+        created_invite_url = None
+
+        if request.method == "POST":
+            action = request.form.get("action")
+            if action == "create_invite":
+                role = (request.form.get("role") or "").strip()
+                label = (request.form.get("label") or "").strip() or None
+                expires_days = request.form.get("expires_days", type=int)
+                if expires_days is None or expires_days <= 0:
+                    expires_days = 30
+
+                if role not in allowed_roles:
+                    flash("Invalid role selected.", "error")
+                else:
+                    expires_at = datetime.utcnow() + timedelta(days=expires_days)
+                    _record, raw_token = q.create_invite_token(
+                        org_id=org.id,
+                        created_by_user_id=current_user.id,
+                        role=role,
+                        label=label,
+                        expires_at=expires_at,
+                    )
+                    created_invite_url = url_for(
+                        "auth.register_via_invite",
+                        raw_token=raw_token,
+                        _external=True,
+                    )
+                    flash("Invite link created successfully! Copy and share it below.", "success")
+            elif action == "revoke_invite":
+                token_id = request.form.get("token_id", type=int)
+                if token_id:
+                    revoked = q.revoke_invite_token(token_id=token_id, org_id=org.id)
+                    if revoked:
+                        flash("Invite link revoked.", "success")
+                    else:
+                        flash("Invite link not found or already revoked.", "error")
+                return redirect(url_for("org_admin_view.invite_links"))
+
+        tokens = q.get_invite_tokens_for_org(org.id)
+        return render_template(
+            "admin/org_invite_links.html",
+            org=org,
+            tokens=tokens,
+            allowed_roles=sorted(allowed_roles),
+            created_invite_url=created_invite_url,
             csrf_token=generate_csrf(),
         )
 
