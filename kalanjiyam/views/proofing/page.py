@@ -1355,12 +1355,20 @@ def ocr(project_slug, page_slug):
         if ocr_response.blocks and image_path:
             from kalanjiyam.utils.ocr_cropper import crop_ocr_response_elements
 
+            use_caption_naming = request.args.get("use_caption_naming") in (
+                "1",
+                "true",
+                "True",
+                True,
+            ) or bool(request.is_json and request.json and request.json.get("use_caption_naming"))
+
             try:
                 crop_ocr_response_elements(
                     doc_path=str(image_path),
                     ocr_response=ocr_response,
                     project_slug=project_slug,
                     output_dir=str(image_path.parent),
+                    use_caption_naming=use_caption_naming,
                 )
             except Exception as e:
                 logging.exception(f"Failed to crop visual elements: {e}")
@@ -1755,12 +1763,20 @@ def enhanced_ocr(project_slug, page_slug):
         if ocr_response.blocks and image_path:
             from kalanjiyam.utils.ocr_cropper import crop_ocr_response_elements
 
+            use_caption_naming = request.args.get("use_caption_naming") in (
+                "1",
+                "true",
+                "True",
+                True,
+            ) or bool(request.is_json and request.json and request.json.get("use_caption_naming"))
+
             try:
                 crop_ocr_response_elements(
                     doc_path=str(image_path),
                     ocr_response=ocr_response,
                     project_slug=project_slug,
                     output_dir=str(image_path.parent),
+                    use_caption_naming=use_caption_naming,
                 )
             except Exception as e:
                 logging.exception(f"Failed to crop visual elements: {e}")

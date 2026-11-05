@@ -1899,6 +1899,12 @@ def batch_ocr(slug):
 
         engine_num = request.form.get("engine", "")
         language = request.form.get("language") or "auto"
+        use_caption_naming = request.form.get("use_caption_naming") in (
+            "1",
+            "true",
+            "True",
+            True,
+        )
         if is_restricted_ocr:
             engine = default_ocr_engine
         else:
@@ -1914,6 +1920,7 @@ def batch_ocr(slug):
                 engine=engine,
                 language=language,
                 queue=queue_name,
+                use_caption_naming=use_caption_naming,
             )
             if task:
                 # Log usage action for guests
@@ -1930,6 +1937,7 @@ def batch_ocr(slug):
                     "task_id": task.id,
                     "engine": engine,
                     "language": language,
+                    "use_caption_naming": use_caption_naming,
                     "started_at": datetime.utcnow().isoformat(),
                     "project_slug": slug,
                 }
@@ -2243,6 +2251,12 @@ def batch_enhanced_ocr(slug):
             True,
         ) or request.form.get("closely_written") in ("1", "true", "True", True)
         upscale = request.form.get("upscale") in ("1", "true", "True", True)
+        use_caption_naming = request.form.get("use_caption_naming") in (
+            "1",
+            "true",
+            "True",
+            True,
+        )
         try:
             upscale_factor = int(request.form.get("upscale_factor", 2) or 2)
         except (ValueError, TypeError):
@@ -2270,6 +2284,7 @@ def batch_enhanced_ocr(slug):
                 upscale=upscale,
                 upscale_factor=upscale_factor,
                 queue=queue_name,
+                use_caption_naming=use_caption_naming,
             )
             if task:
                 if not current_user.is_authenticated:
@@ -2290,6 +2305,7 @@ def batch_enhanced_ocr(slug):
                     "line_segmentation": line_segmentation,
                     "upscale": upscale,
                     "upscale_factor": upscale_factor,
+                    "use_caption_naming": use_caption_naming,
                     "started_at": datetime.utcnow().isoformat(),
                     "project_slug": slug,
                 }

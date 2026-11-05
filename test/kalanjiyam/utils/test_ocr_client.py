@@ -608,4 +608,70 @@ def test_parse_vlm_json_blocks_nested_keys():
     assert blocks[0]["content"] == "Doc Title"
 
 
+def test_parse_chandra_html_variations():
+    """Verify that Chandra HTML parser handles comma-separated bboxes, bracketed bboxes, and picture categories."""
+    from kalanjiyam.utils.ocr_client import _parse_chandra_html
+
+    chandra_html = (
+        '<figure data-bbox="100, 200, 500, 400"><figcaption>Figure 1: Diagram</figcaption></figure>'
+        '<div data-box="[100, 450, 900, 800]" data-category="Picture"><img src="x"/></div>'
+        '<div bbox="100,200,300,400" class="figure"></div>'
+    )
+    blocks, boxes, text = _parse_chandra_html(chandra_html, 1000, 2000)
+    assert blocks is not None
+    assert len(blocks) == 3
+    # Check figure tag with figcaption
+    assert blocks[0]["type"] == "figure"
+    assert blocks[0]["bbox"] == [100, 400, 500, 800]
+    assert blocks[0].get("caption") == "Figure 1: Diagram"
+    assert blocks[0].get("figure_name") == "Figure 1: Diagram"
+
+    # Check data-box bracketed with Picture category
+    assert blocks[1]["type"] == "figure"
+    assert blocks[1]["bbox"] == [100, 900, 900, 1600]
+
+    # Check bbox without space with class="figure"
+    assert blocks[2]["type"] == "figure"
+    assert blocks[2]["bbox"] == [100, 400, 300, 800]
+
+
+def test_run_ocr_remote_chandra_infers_page_dimensions(flask_app, tmp_path):
+    """When /v1/ocr returns Chandra HTML without page_width/page_height, run_ocr_remote infers them from image."""
+    from PIL import Image
+    img = tmp_path / "scan.jpg"
+    Image.new("RGB", (1200, 1800), color="white").save(img)
+
+    with flask_app.app_context():
+        flask_app.config.update(
+            OCR_SERVICE_URL="http://10.195.100.51:4000/v1",
+            OCR_SERVICE_API_KEY="test-key",
+            OCR_SERVICE_TIMEOUT=30,
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "text": '<div data-bbox="100, 200, 500, 400" data-label="Figure"></div>'
+            # page_width and page_height intentionally omitted
+        }
+
+        with patch("kalanjiyam.utils.ocr_client.httpx.Client") as client_cls:
+            client = client_cls.return_value.__enter__.return_value
+            client.post.return_value = mock_resp
+
+            from kalanjiyam.utils.ocr_client import run_ocr_remote
+
+            res = run_ocr_remote(img, "chandra", "sa")
+
+        assert res.engine == "chandra"
+        assert res.page_width == 1200
+        assert res.page_height == 1800
+        assert res.blocks is not None
+        assert len(res.blocks) == 1
+        assert res.blocks[0]["type"] == "figure"
+        # 100/1000 * 1200 = 120, 200/1000 * 1800 = 360, 500/1000 * 1200 = 600, 400/1000 * 1800 = 720
+        assert res.blocks[0]["bbox"] == [120, 360, 600, 720]
+
+
+
 

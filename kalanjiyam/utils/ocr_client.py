@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -286,14 +287,32 @@ def _scale_vlm_coords(
 def _parse_chandra_html(
     html_text: str, page_width: int | None, page_height: int | None
 ) -> tuple[list[dict] | None, list[tuple[float, float, float, float, str]], str]:
-    """Parse layout blocks from Chandra OCR HTML containing data-bbox attributes."""
-    if not html_text or "data-bbox" not in html_text:
+    """Parse layout blocks from Chandra OCR HTML containing data-bbox/data-box attributes."""
+    if not html_text:
+        return None, [], html_text
+
+    raw_html = html_text.strip()
+    if raw_html.startswith("```"):
+        lines = raw_html.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        raw_html = "\n".join(lines).strip()
+
+    if "<extract>" in raw_html:
+        m = re.search(r"<extract>([\s\S]*?)</extract>", raw_html)
+        if m:
+            raw_html = m.group(1).strip()
+
+    lowered = raw_html.lower()
+    if not any(k in lowered for k in ("data-bbox", "data-box", "bbox=", "<figure", "<img")):
         return None, [], html_text
 
     try:
         from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html_text, "html.parser")
-        elements = soup.find_all(attrs={"data-bbox": True})
+        soup = BeautifulSoup(raw_html, "html.parser")
+        elements = soup.find_all(lambda tag: tag.has_attr("data-bbox") or tag.has_attr("data-box") or tag.has_attr("bbox"))
         if not elements:
             return None, [], html_text
 
@@ -302,8 +321,13 @@ def _parse_chandra_html(
         text_parts: list[str] = []
 
         for i, el in enumerate(elements):
-            bbox_str = el.get("data-bbox", "").strip()
-            parts = [float(p) for p in bbox_str.split() if p]
+            raw_bbox = el.get("data-bbox") or el.get("data-box") or el.get("bbox") or ""
+            clean_bbox = re.sub(r"[\[\]\(\)]", "", str(raw_bbox)).strip()
+            parts_str = [p for p in re.split(r"[\s,]+", clean_bbox) if p]
+            try:
+                parts = [float(p) for p in parts_str]
+            except (ValueError, TypeError):
+                continue
             if len(parts) != 4:
                 continue
 
@@ -311,20 +335,34 @@ def _parse_chandra_html(
             if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
                 continue
 
-            label = (el.get("data-label") or "").lower()
-            if "header" in label or "title" in label:
+            label = (
+                el.get("data-label")
+                or el.get("data-category")
+                or el.get("data-type")
+                or el.get("category")
+                or ""
+            ).lower()
+            classes = el.get("class") or []
+            class_str = (" ".join(classes) if isinstance(classes, list) else str(classes)).lower()
+            tag_name = el.name.lower()
+
+            if tag_name in ("figure", "img"):
+                btype = "figure"
+            elif any(w in label for w in ("image", "figure", "picture", "photo", "illustration", "diagram", "graphic", "drawing")):
+                btype = "figure"
+            elif any(w in class_str for w in ("figure", "image", "picture", "diagram")):
+                btype = "figure"
+            elif "header" in label or "title" in label:
                 btype = "heading"
             elif "subheading" in label:
                 btype = "subheading"
-            elif "table" in label:
+            elif "table" in label or tag_name == "table" or "table" in class_str:
                 btype = "table"
-            elif any(w in label for w in ("image", "figure", "picture")):
-                btype = "figure"
-            elif "caption" in label:
+            elif "caption" in label or tag_name == "figcaption" or "caption" in class_str:
                 btype = "caption"
-            elif "footnote" in label:
+            elif "footnote" in label or "footnote" in class_str:
                 btype = "footnote"
-            elif "formula" in label or "equation" in label:
+            elif "formula" in label or "equation" in label or tag_name in ("math", "equation"):
                 btype = "equation"
             elif "page-header" in label:
                 btype = "running-header"
@@ -333,11 +371,15 @@ def _parse_chandra_html(
             else:
                 btype = "paragraph"
 
+            caption_val = None
             if btype == "table":
                 tbl = el.find("table")
                 content = str(tbl) if tbl else "".join(str(c) for c in el.children).strip()
             elif btype == "figure":
-                img_tag = el.find("img")
+                img_tag = el.find("img") or (el if tag_name == "img" else None)
+                cap_tag = el.find(["figcaption", "caption"]) or el.find(attrs={"data-label": re.compile(r"caption", re.I)})
+                if cap_tag:
+                    caption_val = cap_tag.get_text().strip()
                 content = str(img_tag) if img_tag else el.get_text().strip()
             else:
                 for br in el.find_all(["br", "hr"]):
@@ -345,14 +387,19 @@ def _parse_chandra_html(
                 content = el.get_text().strip()
 
             block_id = f"b{i+1:03d}"
-            blocks.append({
+            block_entry = {
                 "id": block_id,
                 "type": btype,
                 "bbox": bbox,
                 "reading_order": i + 1,
                 "content": content,
                 "confidence": 1.0,
-            })
+            }
+            if caption_val:
+                block_entry["caption"] = caption_val
+                block_entry["figure_name"] = caption_val
+
+            blocks.append(block_entry)
             boxes.append((float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]), content))
             if content:
                 text_parts.append(content)
@@ -572,6 +619,15 @@ def _run_ocr_chat_completions(
             "Output as a JSON array of objects with keys: \"type\" (paragraph, heading, table, or figure), "
             "\"bbox\" ([ymin, xmin, ymax, xmax] in 0-1000 normalized scale), and \"text\" (leave empty for figures/images). "
             "Output ONLY valid JSON without any markdown formatting or commentary."
+        )
+    elif model_id == "chandra":
+        ocr_prompt = (
+            "OCR this image to HTML, arranged as layout blocks. "
+            "Each layout block should be an element with a data-bbox attribute representing the bounding box of the block "
+            "in x0 y0 x1 y1 format normalized to 0-1000. "
+            "The data-label attribute is the label for the block (e.g. Header, Paragraph, Table, Figure, Caption, Footnote). "
+            "For visual elements (figures/pictures/images/diagrams), use data-label=\"Figure\". "
+            "Output ONLY the HTML layout blocks."
         )
     elif model_id == "dots-ocr":
         ocr_prompt = (
@@ -828,6 +884,17 @@ def run_ocr_remote(file_path: Path, engine_name: str, language: str) -> OcrRespo
                 pass
 
             payload = response.json()
+
+            pw = payload.get("page_width")
+            ph = payload.get("page_height")
+            if not pw or not ph:
+                try:
+                    from PIL import Image
+                    with Image.open(file_path) as im:
+                        pw, ph = im.size
+                except Exception as img_err:
+                    logger.debug("Could not read image dimensions from %s: %s", file_path, img_err)
+
             blocks = payload.get("blocks")
             if blocks is not None and not isinstance(blocks, list):
                 blocks = None
@@ -838,14 +905,22 @@ def run_ocr_remote(file_path: Path, engine_name: str, language: str) -> OcrRespo
             boxes = _parse_bounding_boxes(payload.get("bounding_boxes"), engine_name)
 
             if not blocks:
-                if "data-bbox" in text:
-                    p_blocks, p_boxes, clean_t = _parse_chandra_html(text, payload.get("page_width"), payload.get("page_height"))
+                html_candidate = payload.get("layout_html") or payload.get("html") or text
+                lowered_cand = (html_candidate or "").lower()
+                if html_candidate and (
+                    "data-bbox" in lowered_cand
+                    or "data-box" in lowered_cand
+                    or "bbox=" in lowered_cand
+                    or "<figure" in lowered_cand
+                    or service_engine == "chandra"
+                ):
+                    p_blocks, p_boxes, clean_t = _parse_chandra_html(html_candidate, pw, ph)
                     if p_blocks:
                         blocks = p_blocks
                         boxes = p_boxes
                         text = clean_t
                 elif text.strip().startswith("[") or text.strip().startswith("{"):
-                    p_blocks, p_boxes, clean_t = _parse_vlm_json_blocks(text, payload.get("page_width"), payload.get("page_height"))
+                    p_blocks, p_boxes, clean_t = _parse_vlm_json_blocks(text, pw, ph)
                     if p_blocks:
                         blocks = p_blocks
                         boxes = p_boxes
@@ -872,8 +947,8 @@ def run_ocr_remote(file_path: Path, engine_name: str, language: str) -> OcrRespo
                 bounding_boxes=boxes,
                 blocks=blocks,
                 content_format="blocks" if blocks else "plain",
-                page_width=payload.get("page_width"),
-                page_height=payload.get("page_height"),
+                page_width=pw,
+                page_height=ph,
                 pipeline="standard",
                 source_type=payload.get("source_type", "scan"),
                 coordinate_space=coordinate_space,
