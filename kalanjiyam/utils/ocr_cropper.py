@@ -10,7 +10,38 @@ import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_IMAGE_TYPES = {"figure", "image", "picture", "diagram"}
+DEFAULT_IMAGE_TYPES = {
+    "figure",
+    "image",
+    "picture",
+    "diagram",
+    "photo",
+    "illustration",
+    "graphic",
+    "drawing",
+}
+
+
+def is_image_block(block_type: Any, image_types: set = DEFAULT_IMAGE_TYPES) -> bool:
+    """Check if a block category/type represents a visual image or figure."""
+    btype = str(block_type or "").lower().strip()
+    if not btype or "caption" in btype:
+        return False
+    if btype in image_types:
+        return True
+    return any(
+        t in btype
+        for t in (
+            "figure",
+            "image",
+            "picture",
+            "photo",
+            "illustration",
+            "diagram",
+            "graphic",
+            "drawing",
+        )
+    )
 
 
 def slugify_figure_name(caption: str, max_length: int = 50) -> str:
@@ -64,6 +95,17 @@ def find_figure_caption(
         if val and isinstance(val, str) and val.strip():
             return val.strip()
 
+    raw_fig_content = fig_block.get("content") or fig_block.get("text") or ""
+    if isinstance(raw_fig_content, str) and raw_fig_content.strip() and not raw_fig_content.strip().startswith("<img"):
+        from bs4 import BeautifulSoup
+        plain_fig_text = BeautifulSoup(raw_fig_content, "html.parser").get_text().strip()
+        if plain_fig_text and re.match(
+            r"^(fig|figure|plate|illustration|diagram|chart|map|चित्र|चित्रा|படம்|படம்\.|रेखाचित्र|आकृति)\b",
+            plain_fig_text,
+            re.IGNORECASE,
+        ):
+            return plain_fig_text
+
     if not figure_bbox or len(figure_bbox) != 4:
         return None
 
@@ -89,7 +131,7 @@ def find_figure_caption(
         ).lower()
 
         # If another visual figure element is encountered, stop
-        if ctype in DEFAULT_IMAGE_TYPES:
+        if is_image_block(ctype, DEFAULT_IMAGE_TYPES):
             break
 
         cand_bbox = cand.get("bbox")
@@ -263,13 +305,16 @@ def crop_elements_from_image(
                 block_id = block.get("id")
                 bbox = block.get("bbox")
 
-                if block_type in image_types:
+                if is_image_block(block_type, image_types):
                     if not bbox or len(bbox) != 4:
                         continue
                     if block_id is None:
                         continue
 
                     xmin, ymin, xmax, ymax = map(float, bbox)
+                    if max(xmin, ymin, xmax, ymax) <= 1.05 and page_width and page_height:
+                        xmin, ymin = xmin * page_width, ymin * page_height
+                        xmax, ymax = xmax * page_width, ymax * page_height
 
                     xmin = max(0.0, min(xmin, float(page_width)))
                     ymin = max(0.0, min(ymin, float(page_height)))
@@ -394,13 +439,16 @@ def crop_elements_from_pdf(
             block_id = block.get("id")
             bbox = block.get("bbox")
 
-            if block_type in image_types:
+            if is_image_block(block_type, image_types):
                 if not bbox or len(bbox) != 4:
                     continue
                 if block_id is None:
                     continue
 
                 xmin, ymin, xmax, ymax = map(float, bbox)
+                if max(xmin, ymin, xmax, ymax) <= 1.05 and page_width and page_height:
+                    xmin, ymin = xmin * page_width, ymin * page_height
+                    xmax, ymax = xmax * page_width, ymax * page_height
 
                 xmin = max(0.0, min(xmin, float(page_width)))
                 ymin = max(0.0, min(ymin, float(page_height)))
@@ -494,6 +542,27 @@ def crop_ocr_response_elements(
         "page_height": getattr(ocr_response, "page_height", None),
         "blocks": blocks_as_dicts,
     }
+
+    if not layout_data["page_width"] or not layout_data["page_height"]:
+        try:
+            ext = os.path.splitext(doc_path)[1].lower() if doc_path else ""
+            if ext == ".pdf":
+                doc = fitz.open(doc_path)
+                if 0 <= page_num < len(doc):
+                    p = doc[page_num]
+                    layout_data["page_width"] = int(p.rect.width)
+                    layout_data["page_height"] = int(p.rect.height)
+                doc.close()
+            elif doc_path and os.path.exists(doc_path):
+                with Image.open(doc_path) as im:
+                    layout_data["page_width"], layout_data["page_height"] = im.size
+            if layout_data["page_width"] and layout_data["page_height"]:
+                if hasattr(ocr_response, "page_width"):
+                    setattr(ocr_response, "page_width", layout_data["page_width"])
+                if hasattr(ocr_response, "page_height"):
+                    setattr(ocr_response, "page_height", layout_data["page_height"])
+        except Exception as e:
+            logger.warning("Could not determine page dimensions from %s: %s", doc_path, e)
 
     if not layout_data["page_width"] or not layout_data["page_height"]:
         return []

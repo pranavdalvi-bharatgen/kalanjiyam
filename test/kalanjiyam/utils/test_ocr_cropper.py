@@ -324,3 +324,96 @@ def test_crop_elements_from_image_with_caption_naming(tmp_path):
     assert base_name.startswith("Figure_4_Bronze_Sculpture-")
     assert layout_data["blocks"][0].get("figure_name") == "Figure 4: Bronze Sculpture"
 
+
+def test_crop_ocr_response_elements_infers_page_dimensions_when_none(tmp_path):
+    img_path = str(tmp_path / "page_chandra.png")
+    out_dir = str(tmp_path / "output_crops")
+    Image.new("RGB", (600, 800), color="blue").save(img_path)
+
+    class MockOcrResponse:
+        page_width = None
+        page_height = None
+        blocks = [
+            {
+                "id": "b001",
+                "type": "figure",
+                "bbox": [60, 80, 540, 500],
+                "content": "",
+            }
+        ]
+
+    resp = MockOcrResponse()
+    paths = crop_ocr_response_elements(
+        doc_path=img_path,
+        ocr_response=resp,
+        project_slug=None,
+        output_dir=out_dir,
+    )
+    assert len(paths) == 1
+    assert os.path.exists(paths[0])
+    assert resp.page_width == 600
+    assert resp.page_height == 800
+    assert "<img " in resp.blocks[0]["content"]
+
+
+def test_crop_elements_from_image_chandra_embedded_caption(tmp_path):
+    img_path = str(tmp_path / "page_embedded.png")
+    out_dir = str(tmp_path / "output_crops")
+    Image.new("RGB", (400, 600), color="red").save(img_path)
+
+    layout_data = {
+        "page_width": 400,
+        "page_height": 600,
+        "blocks": [
+            {
+                "id": "b001",
+                "type": "figure",
+                "bbox": [20, 20, 380, 400],
+                "content": "Figure 12: Historical Inscription",
+            }
+        ],
+    }
+    saved_paths = crop_elements_from_image(
+        image_path=img_path,
+        layout_data=layout_data,
+        project_slug=None,
+        output_dir=out_dir,
+        use_caption_naming=True,
+    )
+    assert len(saved_paths) == 1
+    assert os.path.exists(saved_paths[0])
+    filename = os.path.basename(saved_paths[0])
+    assert filename.startswith("Figure_12_Historical_Inscription-")
+
+
+def test_crop_elements_from_image_normalized_0_to_1_coords(tmp_path):
+    img_path = str(tmp_path / "page_norm.png")
+    out_dir = str(tmp_path / "output_crops")
+    Image.new("RGB", (500, 1000), color="white").save(img_path)
+
+    layout_data = {
+        "page_width": 500,
+        "page_height": 1000,
+        "blocks": [
+            {
+                "id": "b001",
+                "type": "figure",
+                "bbox": [0.1, 0.2, 0.8, 0.7],
+                "content": "",
+            }
+        ],
+    }
+    saved_paths = crop_elements_from_image(
+        image_path=img_path,
+        layout_data=layout_data,
+        project_slug=None,
+        output_dir=out_dir,
+    )
+    assert len(saved_paths) == 1
+    assert os.path.exists(saved_paths[0])
+    with Image.open(saved_paths[0]) as cropped_im:
+        # Expected width: (0.8 - 0.1) * 500 = 350
+        # Expected height: (0.7 - 0.2) * 1000 = 500
+        assert cropped_im.size == (350, 500)
+
+
