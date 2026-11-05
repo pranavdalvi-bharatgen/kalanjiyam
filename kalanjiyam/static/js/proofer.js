@@ -142,6 +142,7 @@ export default () => ({
   lineSegmentation: false,
   upscaleImage: false,
   upscaleFactor: '2',
+  useCaptionNaming: false,
   showOcrEngineInfo: false,
 
   // Enhancement Preview & Image Replacement state
@@ -1173,6 +1174,7 @@ export default () => ({
         this.selectedEngine = settings.selectedEngine || this.selectedEngine;
         this.selectedLanguage = settings.selectedLanguage || this.selectedLanguage;
         this.additionalLanguage = settings.additionalLanguage || '';
+        this.useCaptionNaming = typeof settings.useCaptionNaming !== 'undefined' ? Boolean(settings.useCaptionNaming) : this.useCaptionNaming;
         
         // Load Translation settings
         this.selectedTranslationEngine = settings.selectedTranslationEngine || this.selectedTranslationEngine;
@@ -1198,6 +1200,7 @@ export default () => ({
       selectedEngine: this.selectedEngine,
       selectedLanguage: this.selectedLanguage,
       additionalLanguage: this.additionalLanguage,
+      useCaptionNaming: this.useCaptionNaming,
       selectedTranslationEngine: this.selectedTranslationEngine,
       sourceLanguage: this.sourceLanguage,
       targetLanguage: this.targetLanguage,
@@ -1786,6 +1789,12 @@ export default () => ({
     if (combinedLanguage) {
       url += `&language=${combinedLanguage}`;
     }
+    if (this.useCaptionNaming) {
+      url += '&use_caption_naming=1';
+    }
+    if (this.useCaptionNaming) {
+      url += '&use_caption_naming=1';
+    }
 
     try {
       const response = await fetch(url);
@@ -1840,6 +1849,9 @@ export default () => ({
     }
     if (combinedLanguage) {
       url += `&language=${combinedLanguage}`;
+    }
+    if (this.useCaptionNaming) {
+      url += '&use_caption_naming=1';
     }
 
     try {

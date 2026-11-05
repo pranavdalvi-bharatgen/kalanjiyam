@@ -28,6 +28,7 @@ def _run_ocr_for_page_inner(
     engine: str = "google",
     language: str = "auto",
     force: bool = False,
+    use_caption_naming: bool = False,
 ):
     """Must run in the application context."""
     import json
@@ -223,6 +224,7 @@ def _run_ocr_for_page_inner(
                     ocr_response=ocr_response,
                     project_slug=project_slug,
                     output_dir=str(image_path.parent),
+                    use_caption_naming=use_caption_naming,
                 )
             except Exception as e:
                 logging.exception(f"Failed to crop visual elements: {e}")
@@ -439,6 +441,7 @@ def run_ocr_for_page(
     engine: str = "1",  # Default to Google OCR (1)
     language: str = "auto",
     force: bool = False,
+    use_caption_naming: bool = False,
 ):
     _run_ocr_for_page_inner(
         app_env,
@@ -447,6 +450,7 @@ def run_ocr_for_page(
         engine,
         language,
         force=force,
+        use_caption_naming=use_caption_naming,
     )
 
 
@@ -456,6 +460,7 @@ def run_ocr_for_project(
     engine: str = "1",  # Default to Google OCR (1)
     language: str = "auto",
     queue: str | None = None,
+    use_caption_naming: bool = False,
 ) -> GroupResult | None:
     """Create a `group` task to run OCR on a project."""
     flask_app = create_config_only_app(app_env)
@@ -550,6 +555,7 @@ def run_ocr_for_project(
                 page_slug=p.slug,
                 engine=engine,
                 language=language,
+                use_caption_naming=use_caption_naming,
             ).set(priority=priority)
             for p in unedited_pages
         )
@@ -575,6 +581,7 @@ def _run_enhanced_ocr_for_page_inner(
     upscale: bool = False,
     upscale_factor: int = 2,
     force: bool = False,
+    use_caption_naming: bool = False,
 ):
     """Run Enhanced OCR in application context."""
     import io
@@ -852,6 +859,7 @@ def _run_enhanced_ocr_for_page_inner(
                     ocr_response=ocr_response,
                     project_slug=project_slug,
                     output_dir=str(image_path.parent),
+                    use_caption_naming=use_caption_naming,
                 )
             except Exception as e:
                 logging.exception(f"Failed to crop visual elements: {e}")
@@ -1074,6 +1082,7 @@ def run_enhanced_ocr_for_page(
     upscale: bool = False,
     upscale_factor: int = 2,
     force: bool = False,
+    use_caption_naming: bool = False,
 ):
     _run_enhanced_ocr_for_page_inner(
         app_env,
@@ -1087,6 +1096,7 @@ def run_enhanced_ocr_for_page(
         upscale=upscale,
         upscale_factor=upscale_factor,
         force=force,
+        use_caption_naming=use_caption_naming,
     )
 
 
@@ -1101,6 +1111,7 @@ def run_enhanced_ocr_for_project(
     upscale: bool = False,
     upscale_factor: int = 2,
     queue: str | None = None,
+    use_caption_naming: bool = False,
 ) -> GroupResult | None:
     """Create a `group` task to run Enhanced OCR on a project."""
     flask_app = create_config_only_app(app_env)
@@ -1200,6 +1211,7 @@ def run_enhanced_ocr_for_project(
                 line_segmentation=line_segmentation,
                 upscale=upscale,
                 upscale_factor=upscale_factor,
+                use_caption_naming=use_caption_naming,
             ).set(priority=priority)
             for p in unedited_pages
         )

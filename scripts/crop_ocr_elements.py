@@ -31,6 +31,7 @@ def process_document(
     page_num: int = 0,
     project_slug: str | None = None,
     save_json_path: str | None = None,
+    use_caption_naming: bool = False,
 ) -> List[str]:
     """
     Helper function to load the JSON payload, check file type of doc_path, and route to proper cropper.
@@ -54,6 +55,7 @@ def process_document(
             project_slug=project_slug,
             output_dir=output_dir,
             page_num=page_num,
+            use_caption_naming=use_caption_naming,
         )
     else:
         # Attempt to open as image
@@ -63,6 +65,7 @@ def process_document(
                 layout_data=layout_data,
                 project_slug=project_slug,
                 output_dir=output_dir,
+                use_caption_naming=use_caption_naming,
             )
         except Exception as e:
             raise ValueError(f"Unsupported document format or error loading file as image: {doc_path}. Error: {e}")
@@ -81,6 +84,7 @@ if __name__ == "__main__":
     parser.add_argument("--page", type=int, default=0, help="PDF page index to crop from (0-indexed, default is 0)")
     parser.add_argument("--project-slug", default=None, help="Optional Kalanjiyam project slug to save into app storage")
     parser.add_argument("--save-json", default=None, help="Optional file path to save updated layout JSON")
+    parser.add_argument("--use-caption-naming", action="store_true", help="Name extracted figure images based on detected figure caption text")
 
     args = parser.parse_args()
 
@@ -92,6 +96,7 @@ if __name__ == "__main__":
             page_num=args.page,
             project_slug=args.project_slug,
             save_json_path=args.save_json,
+            use_caption_naming=args.use_caption_naming,
         )
         print(f"\nSuccessfully cropped {len(results)} visual element(s).")
     except Exception as exc:

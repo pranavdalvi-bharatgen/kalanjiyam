@@ -402,6 +402,23 @@ these components in our help text and documentation.
           </template>
         </div>
       </div>
+
+      <!-- Caption-based Figure Naming -->
+      <div class="pt-2 border-t border-slate-100">
+        <label class="flex items-start gap-2 p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors"
+               :class="useCaptionNaming ? 'border-royalblue bg-royalblue/5 text-royalblue' : 'text-slate-700'">
+          <input type="checkbox"
+                 x-model="useCaptionNaming"
+                 class="mt-0.5 rounded border-slate-300 text-royalblue focus:ring-royalblue/20"
+                 @click.stop />
+          <div class="flex flex-col select-none">
+            <span class="text-xs font-medium">{{ _('Name figures by caption') }}</span>
+            <span class="text-[10px] text-slate-500 font-normal leading-tight mt-0.5">
+              {{ _('Saves as {caption}-{uuid}.png for ZIP export') }}
+            </span>
+          </div>
+        </label>
+      </div>
     </div>
 
     <!-- Fixed Bottom Button -->
@@ -608,6 +625,21 @@ these components in our help text and documentation.
             </select>
           </div>
         </div>
+
+        <!-- Caption-based Figure Naming -->
+        <label class="flex items-start gap-2 p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors"
+               :class="useCaptionNaming ? 'border-royalblue bg-royalblue/5 text-royalblue' : 'text-slate-700'">
+          <input type="checkbox"
+                 x-model="useCaptionNaming"
+                 class="mt-0.5 rounded border-slate-300 text-royalblue focus:ring-royalblue/20"
+                 @click.stop />
+          <div class="flex flex-col select-none">
+            <span class="text-xs font-medium">{{ _('Name figures by caption') }}</span>
+            <span class="text-[10px] text-slate-500 font-normal leading-tight mt-0.5">
+              {{ _('Saves as {caption}-{uuid}.png for ZIP export') }}
+            </span>
+          </div>
+        </label>
       </div>
     </div>
 
@@ -1599,6 +1631,23 @@ Pass `class` explicitly so that Tailwind can regex-find it when it compiles. #}
               <span x-show="selectedEngine === '2'">{{ _('For bilingual documents (e.g., Sanskrit + English)') }}</span>
               <span x-show="selectedEngine === '3'">{{ _('Engine auto-detects languages, but you can specify additional ones') }}</span>
             </p>
+          </li>
+
+          <!-- Caption-based Figure Naming -->
+          <li class="border-t border-teal-100 pt-2 pb-1">
+            <label class="flex items-start gap-2 p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors"
+                   :class="useCaptionNaming ? 'border-royalblue bg-royalblue/5 text-royalblue' : 'text-slate-700'">
+              <input type="checkbox"
+                     x-model="useCaptionNaming"
+                     class="mt-0.5 rounded border-slate-300 text-royalblue focus:ring-royalblue/20"
+                     @click.stop />
+              <div class="flex flex-col select-none">
+                <span class="text-xs font-medium">{{ _('Name figures by caption') }}</span>
+                <span class="text-[10px] text-slate-500 font-normal leading-tight mt-0.5">
+                  {{ _('Saves as {caption}-{uuid}.png for ZIP export') }}
+                </span>
+              </div>
+            </label>
           </li>
           
           <!-- Run OCR Button -->
