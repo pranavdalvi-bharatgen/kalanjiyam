@@ -4,10 +4,13 @@ We use this module to organize repetitive query logic and keep our views readabl
 For simple or adhoc queries, you can just write them in their corresponding view.
 """
 
+import csv
 from datetime import datetime
 import functools
 import hashlib
+import io
 import os
+import re
 import secrets
 
 from flask import current_app
@@ -974,5 +977,238 @@ def create_user_via_invite(
         pass
 
     return user
+
+
+def bulk_create_users_from_csv(
+    *,
+    org_id: int,
+    csv_content: str,
+    default_role: str = db.SiteRole.P1.value,
+    default_password: str = "User@1234",
+) -> dict:
+    """Create multiple user accounts from CSV data for a specific organization.
+
+    Each created user is assigned default password User@1234, has must_change_password=True,
+    is assigned to org_id and specified/default role, and is marked is_verified=True.
+
+    Returns dict with lists: 'created', 'skipped', 'errors'.
+    """
+    session = get_session()
+    org = session.query(db.Group).filter_by(id=org_id).first()
+    if not org:
+        raise ValueError(f"Organization with id {org_id} does not exist.")
+
+    normalized_default_role = (default_role or db.SiteRole.P1.value).strip().lower()
+    allowed_roles = {
+        db.SiteRole.P1.value,
+        db.SiteRole.P2.value,
+        db.SiteRole.MODERATOR.value,
+        db.SiteRole.ORG_ADMIN.value,
+    }
+
+    if normalized_default_role not in allowed_roles:
+        normalized_default_role = db.SiteRole.P1.value
+
+    clean_csv = csv_content.lstrip("\ufeff")
+    stream = io.StringIO(clean_csv)
+    reader = csv.reader(stream)
+
+    raw_rows = [row for row in reader if any(cell.strip() for cell in row)]
+    if not raw_rows:
+        return {"created": [], "skipped": [], "errors": ["CSV content is empty."]}
+
+    # Detect header
+    first_row = [c.strip() for c in raw_rows[0]]
+    first_row_lower = [c.lower() for c in first_row]
+
+    email_idx = -1
+    role_idx = -1
+    username_idx = -1
+
+    has_header = False
+    for idx, col in enumerate(first_row_lower):
+        if col in ("email", "e-mail", "email address", "email_address", "mail"):
+            email_idx = idx
+            has_header = True
+        elif col in ("role", "roles", "user_role"):
+            role_idx = idx
+            has_header = True
+        elif col in ("username", "user", "user_name", "name"):
+            username_idx = idx
+            has_header = True
+
+    # If first row contains an '@', it's a data row, not a header
+    if any("@" in cell for cell in first_row):
+        has_header = False
+        email_idx = -1
+        role_idx = -1
+        username_idx = -1
+
+    data_rows = raw_rows[1:] if has_header else raw_rows
+
+    if not has_header:
+        email_idx = 0
+        role_idx = 1 if len(first_row) > 1 else -1
+        username_idx = 2 if len(first_row) > 2 else -1
+
+    created: list[dict] = []
+    skipped: list[dict] = []
+    errors: list[str] = []
+
+    email_regex = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+    roles_by_name = {
+        r.name: r
+        for r in session.query(db.Role).filter(db.Role.name.in_(allowed_roles)).all()
+    }
+
+    try:
+        for row_idx, row in enumerate(data_rows, start=(2 if has_header else 1)):
+            row_cells = [c.strip() for c in row]
+            if not any(row_cells):
+                continue
+
+            email = ""
+            if 0 <= email_idx < len(row_cells):
+                email = row_cells[email_idx].strip().lower()
+
+            if not email:
+                errors.append(f"Row {row_idx}: Missing email address.")
+                continue
+
+            if not email_regex.match(email):
+                errors.append(f"Row {row_idx}: Invalid email address '{email}'.")
+                continue
+
+            # Check if already registered
+            existing_user = (
+                session.query(db.User)
+                .filter(func.lower(db.User.email) == email)
+                .first()
+            )
+            if existing_user:
+                skipped.append({
+                    "email": email,
+                    "username": existing_user.username,
+                    "reason": f"Email '{email}' is already registered.",
+                })
+                continue
+
+            # Check if already in this batch to prevent intra-batch duplicate emails
+            if any(c["email"] == email for c in created):
+                skipped.append({
+                    "email": email,
+                    "username": "",
+                    "reason": f"Email '{email}' is duplicated within the CSV.",
+                })
+                continue
+
+            # Role resolution
+            role = normalized_default_role
+            if 0 <= role_idx < len(row_cells) and row_cells[role_idx]:
+                candidate_role = row_cells[role_idx].strip().lower()
+                if candidate_role in allowed_roles:
+                    role = candidate_role
+                elif candidate_role:
+                    errors.append(
+                        f"Row {row_idx}: Invalid role '{candidate_role}'. "
+                        f"Allowed roles: {', '.join(sorted(allowed_roles))}."
+                    )
+                    continue
+
+            # Username resolution
+            custom_username = ""
+            if 0 <= username_idx < len(row_cells) and row_cells[username_idx]:
+                custom_username = row_cells[username_idx].strip().lower()
+
+            if custom_username:
+                if " " in custom_username:
+                    errors.append(f"Row {row_idx}: Username '{custom_username}' must not contain spaces.")
+                    continue
+                if len(custom_username) < 6:
+                    errors.append(f"Row {row_idx}: Username '{custom_username}' must be at least 6 characters.")
+                    continue
+                if len(custom_username) > 64:
+                    errors.append(f"Row {row_idx}: Username '{custom_username}' cannot exceed 64 characters.")
+                    continue
+
+                existing_un = (
+                    session.query(db.User)
+                    .filter(func.lower(db.User.username) == custom_username)
+                    .first()
+                )
+                if existing_un or any(c["username"] == custom_username for c in created):
+                    errors.append(f"Row {row_idx}: Username '{custom_username}' is already taken.")
+                    continue
+                final_username = custom_username
+            else:
+                prefix = email.split("@")[0]
+                clean_base = re.sub(r"[^a-zA-Z0-9_-]", "_", prefix).lower().strip("_")
+                if not clean_base:
+                    clean_base = "user"
+                if len(clean_base) < 6:
+                    clean_base = f"{clean_base}_user"
+                    if len(clean_base) < 6:
+                        clean_base = f"{clean_base}12345"[:6]
+
+                candidate = clean_base[:60]
+                counter = 1
+                while (
+                    session.query(db.User).filter(func.lower(db.User.username) == candidate.lower()).first()
+                    or any(c["username"] == candidate for c in created)
+                ):
+                    candidate = f"{clean_base[:55]}_{counter}"
+                    counter += 1
+                final_username = candidate
+
+            # Create user
+            new_user = db.User(
+                username=final_username,
+                email=email,
+                organization_id=org.id,
+                is_verified=True,
+                must_change_password=True,
+            )
+            new_user.set_password(default_password)
+            session.add(new_user)
+            session.flush()
+
+            # Assign role
+            role_record = roles_by_name.get(role)
+            if not role_record:
+                role_record = db.Role(name=role)
+                session.add(role_record)
+                session.flush()
+                roles_by_name[role] = role_record
+            session.add(db.UserRoles(user_id=new_user.id, role_id=role_record.id))
+
+            # Assign group
+            session.add(db.UserGroups(user_id=new_user.id, group_id=org.id))
+
+            # If org_admin, assign org admin if not set
+            if role == db.SiteRole.ORG_ADMIN.value and not org.admin_user_id:
+                org.admin_user_id = new_user.id
+                session.add(org)
+
+            created.append({
+                "id": new_user.id,
+                "username": final_username,
+                "email": email,
+                "role": role,
+                "default_password": default_password,
+            })
+
+        if created:
+            session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return {
+        "created": created,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
 
 

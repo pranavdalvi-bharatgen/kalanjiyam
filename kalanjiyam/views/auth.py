@@ -202,6 +202,11 @@ class ResetPasswordFromTokenForm(FlaskForm):
     confirm_password = PasswordField(_l("Confirm password"), get_password_validators())
 
 
+class PromptChangePasswordForm(FlaskForm):
+    new_password = PasswordField(_l("New password"), get_password_validators())
+    confirm_password = PasswordField(_l("Confirm new password"), get_password_validators())
+
+
 @bp.route("/register", methods=["GET", "POST"])
 def register():
     from flask import current_app, abort
@@ -307,6 +312,7 @@ def sign_in():
         if user and user.check_password(form.password.data):
             login_user(user, remember=True)
             if is_platform_super_admin(user):
+                target_url = url_for("platform_view.index")
                 next_url = request.args.get("next")
                 if (
                     next_url
@@ -314,10 +320,9 @@ def sign_in():
                     and not next_url.startswith("//")
                     and not next_url.startswith(("/proofing", url_for("proofing.index")))
                 ):
-                    return redirect(next_url)
-                return redirect(url_for("platform_view.index"))
-
-            if is_org_scoped_admin(user):
+                    target_url = next_url
+            elif is_org_scoped_admin(user):
+                target_url = url_for("org_admin_view.index")
                 next_url = request.args.get("next")
                 if (
                     next_url
@@ -325,13 +330,18 @@ def sign_in():
                     and not next_url.startswith("//")
                     and not next_url.startswith(("/proofing", url_for("proofing.index")))
                 ):
-                    return redirect(next_url)
-                return redirect(url_for("org_admin_view.index"))
+                    target_url = next_url
+            else:
+                next_url = request.args.get("next")
+                if next_url and next_url.startswith("/") and not next_url.startswith("//"):
+                    target_url = next_url
+                else:
+                    target_url = url_for(POST_AUTH_ROUTE)
 
-            next_url = request.args.get("next")
-            if next_url and next_url.startswith("/") and not next_url.startswith("//"):
-                return redirect(next_url)
-            return redirect(url_for(POST_AUTH_ROUTE))
+            if getattr(user, "must_change_password", False):
+                return redirect(url_for("auth.prompt_change_password", next=target_url))
+
+            return redirect(target_url)
         else:
             flash(_l("Invalid username or password."), "error")
     return render_template("auth/sign-in.html", form=form)
@@ -393,6 +403,7 @@ def reset_password_from_token(username, raw_token):
         has_password_match = form.password.data == form.confirm_password.data
         if has_password_match:
             user.set_password(form.password.data)
+            user.must_change_password = False
             token.is_active = False
             token.used_at = datetime.now()
 
@@ -437,6 +448,7 @@ def change_password():
     if current_user.check_password(form.old_password.data):
         session = q.get_session()
         current_user.set_password(form.new_password.data)
+        current_user.must_change_password = False
         session.add(current_user)
         session.commit()
 
@@ -448,3 +460,33 @@ def change_password():
         flash(_l("Old password isn't valid."), "error")
 
     return render_template("auth/change-password.html", form=form)
+
+
+@bp.route("/prompt-change-password", methods=["GET", "POST"])
+@login_required
+def prompt_change_password():
+    raw_next = request.args.get("next") or request.form.get("next")
+    next_url = raw_next if (raw_next and raw_next.startswith("/") and not raw_next.startswith("//")) else url_for("site.index")
+
+    if not getattr(current_user, "must_change_password", False):
+        return redirect(next_url)
+
+    if request.method == "POST" and request.form.get("do_it_later"):
+        # Postpone: keep must_change_password = True in DB so it prompts again on next login!
+        return redirect(next_url)
+
+    form = PromptChangePasswordForm()
+    if form.validate_on_submit():
+        if form.new_password.data != form.confirm_password.data:
+            form.confirm_password.errors.append(_l("Passwords must match."))
+        else:
+            session = q.get_session()
+            current_user.set_password(form.new_password.data)
+            current_user.must_change_password = False
+            session.add(current_user)
+            session.commit()
+            flash(_l("Password updated successfully!"), "success")
+            return redirect(next_url)
+
+    return render_template("auth/prompt-change-password.html", form=form, next_url=next_url)
+
