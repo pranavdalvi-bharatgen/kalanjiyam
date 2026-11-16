@@ -302,19 +302,23 @@ def crop_elements_from_image(
                     or block.get("label")
                     or ""
                 ).lower()
-                block_id = block.get("id")
+                block_id = block.get("id") or block.get("block_id") or f"b{block_index+1:03d}"
+                block["id"] = block_id
                 bbox = block.get("bbox")
 
                 if is_image_block(block_type, image_types):
                     if not bbox or len(bbox) != 4:
                         continue
-                    if block_id is None:
-                        continue
 
                     xmin, ymin, xmax, ymax = map(float, bbox)
-                    if max(xmin, ymin, xmax, ymax) <= 1.05 and page_width and page_height:
+                    max_c = max(xmin, ymin, xmax, ymax)
+                    coord_space = layout_data.get("coordinate_space")
+                    if max_c <= 1.05 and page_width and page_height:
                         xmin, ymin = xmin * page_width, ymin * page_height
                         xmax, ymax = xmax * page_width, ymax * page_height
+                    elif coord_space == "normalized" and max_c <= 1000.0 and page_width and page_height:
+                        xmin, ymin = xmin * page_width / 1000.0, ymin * page_height / 1000.0
+                        xmax, ymax = xmax * page_width / 1000.0, ymax * page_height / 1000.0
 
                     xmin = max(0.0, min(xmin, float(page_width)))
                     ymin = max(0.0, min(ymin, float(page_height)))
@@ -436,19 +440,23 @@ def crop_elements_from_pdf(
                 or block.get("label")
                 or ""
             ).lower()
-            block_id = block.get("id")
+            block_id = block.get("id") or block.get("block_id") or f"b{block_index+1:03d}"
+            block["id"] = block_id
             bbox = block.get("bbox")
 
             if is_image_block(block_type, image_types):
                 if not bbox or len(bbox) != 4:
                     continue
-                if block_id is None:
-                    continue
 
                 xmin, ymin, xmax, ymax = map(float, bbox)
-                if max(xmin, ymin, xmax, ymax) <= 1.05 and page_width and page_height:
+                max_c = max(xmin, ymin, xmax, ymax)
+                coord_space = layout_data.get("coordinate_space")
+                if max_c <= 1.05 and page_width and page_height:
                     xmin, ymin = xmin * page_width, ymin * page_height
                     xmax, ymax = xmax * page_width, ymax * page_height
+                elif coord_space == "normalized" and max_c <= 1000.0 and page_width and page_height:
+                    xmin, ymin = xmin * page_width / 1000.0, ymin * page_height / 1000.0
+                    xmax, ymax = xmax * page_width / 1000.0, ymax * page_height / 1000.0
 
                 xmin = max(0.0, min(xmin, float(page_width)))
                 ymin = max(0.0, min(ymin, float(page_height)))
@@ -517,6 +525,20 @@ def crop_ocr_response_elements(
 
     # Get blocks list (it could be a list of dicts or custom objects)
     raw_blocks = getattr(ocr_response, "blocks", []) or []
+    if not raw_blocks and getattr(ocr_response, "bounding_boxes", None):
+        synthesized = []
+        for idx, box in enumerate(ocr_response.bounding_boxes):
+            if isinstance(box, (list, tuple)) and len(box) >= 5 and is_image_block(box[4]):
+                synthesized.append({
+                    "id": f"b{idx+1:03d}",
+                    "type": "figure",
+                    "bbox": [float(box[0]), float(box[1]), float(box[2]), float(box[3])],
+                    "content": "",
+                })
+        if synthesized:
+            raw_blocks = synthesized
+            if hasattr(ocr_response, "blocks"):
+                setattr(ocr_response, "blocks", raw_blocks)
 
     # We must support updating in-place. If they are custom objects (like Block class),
     # or dicts, we wrap them in a unified format for croppers.

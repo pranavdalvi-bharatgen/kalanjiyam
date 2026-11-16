@@ -21,7 +21,8 @@ sys.path.insert(0, str(project_root))
 from kalanjiyam.utils.ocr_cropper import (
     crop_elements_from_image,
     crop_elements_from_pdf,
-    DEFAULT_IMAGE_TYPES
+    DEFAULT_IMAGE_TYPES,
+    is_image_block,
 )
 
 def process_document(
@@ -41,9 +42,49 @@ def process_document(
     if not os.path.exists(json_path):
         raise FileNotFoundError(f"JSON layout file not found: {json_path}")
 
-    # Load layout JSON
-    with open(json_path, encoding='utf-8') as f:
-        layout_data = json.load(f)
+    # Load layout JSON or HTML
+    raw_content = Path(json_path).read_text(encoding="utf-8").strip()
+    layout_data = None
+    if raw_content.startswith("{") or raw_content.startswith("["):
+        try:
+            layout_data = json.loads(raw_content)
+        except json.JSONDecodeError:
+            pass
+
+    if layout_data is None:
+        layout_data = {"text": raw_content}
+
+    # Support Chandra OCR HTML content and bounding_boxes fallback
+    if isinstance(layout_data, dict) and not layout_data.get("blocks"):
+        html_candidate = layout_data.get("layout_html") or layout_data.get("html") or layout_data.get("text")
+        if html_candidate and any(k in html_candidate.lower() for k in ("data-bbox", "data-box", "bbox=", "<figure", "<img")):
+            from kalanjiyam.utils.ocr_client import _parse_chandra_html
+            p_blocks, _, _ = _parse_chandra_html(html_candidate, layout_data.get("page_width"), layout_data.get("page_height"))
+            if p_blocks:
+                layout_data["blocks"] = p_blocks
+
+        if not layout_data.get("blocks") and layout_data.get("bounding_boxes"):
+            blocks = []
+            for idx, box in enumerate(layout_data["bounding_boxes"]):
+                if isinstance(box, (list, tuple)) and len(box) >= 5 and is_image_block(box[4]):
+                    blocks.append({
+                        "id": f"b{idx+1:03d}",
+                        "type": "figure",
+                        "bbox": [float(box[0]), float(box[1]), float(box[2]), float(box[3])],
+                        "content": "",
+                    })
+                elif isinstance(box, dict):
+                    btype = box.get("label") or box.get("type") or box.get("category") or ""
+                    bbox = box.get("bbox")
+                    if bbox and is_image_block(btype):
+                        blocks.append({
+                            "id": box.get("id") or f"b{idx+1:03d}",
+                            "type": "figure",
+                            "bbox": [float(x) for x in bbox],
+                            "content": "",
+                        })
+            if blocks:
+                layout_data["blocks"] = blocks
 
     # Route based on extension/type
     ext = os.path.splitext(doc_path)[1].lower()
