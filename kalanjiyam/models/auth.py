@@ -39,6 +39,9 @@ class User(KalanjiyamUserMixin, Base):
 
     #: If the user has verified their email.
     is_verified = Column(Boolean, nullable=False, default=False)
+
+    #: If the user must change their password on next login.
+    must_change_password = Column(Boolean, nullable=False, default=False)
     #: Primary organization/group for this user.
     organization_id = Column(
         Integer, ForeignKey("groups.id"), nullable=True, index=True
@@ -76,6 +79,10 @@ class User(KalanjiyamUserMixin, Base):
     def set_is_verified(self, is_verified: bool):
         """Update is_verified."""
         self.is_verified = is_verified
+
+    def set_must_change_password(self, must_change_password: bool):
+        """Update must_change_password."""
+        self.must_change_password = must_change_password
 
     def check_password(self, raw_password: str) -> bool:
         """Check if the given password matches the user's hash."""

@@ -3,6 +3,7 @@
 import logging
 
 from flask import (
+    Response,
     abort,
     after_this_request,
     render_template,
@@ -3572,8 +3573,15 @@ class OrgAdminView(AdminBaseView):
             db.SiteRole.P2.value,
             db.SiteRole.MODERATOR.value,
         }
+        bulk_allowed_roles = [
+            db.SiteRole.P1.value,
+            db.SiteRole.P2.value,
+            db.SiteRole.MODERATOR.value,
+            db.SiteRole.ORG_ADMIN.value,
+        ]
 
         created_invite_url = None
+        last_bulk_created = None
 
         if request.method == "POST":
             action = request.form.get("action")
@@ -3610,6 +3618,47 @@ class OrgAdminView(AdminBaseView):
                     else:
                         flash("Invite link not found or already revoked.", "error")
                 return redirect(url_for("org_admin_view.invite_links"))
+            elif action in ("bulk_csv_create", "bulk_csv_upload"):
+                default_role = (request.form.get("default_role") or db.SiteRole.P1.value).strip().lower()
+                csv_file = request.files.get("csv_file")
+                csv_text = (request.form.get("csv_text") or "").strip()
+
+                csv_content = ""
+                if csv_file and csv_file.filename:
+                    try:
+                        csv_content = csv_file.read().decode("utf-8-sig", errors="replace")
+                    except Exception as exc:
+                        flash(f"Failed to read CSV file: {exc}", "error")
+                elif csv_text:
+                    csv_content = csv_text
+
+                if not csv_content.strip():
+                    flash("Please provide a CSV file or paste CSV text to create accounts.", "error")
+                else:
+                    try:
+                        result = q.bulk_create_users_from_csv(
+                            org_id=org.id,
+                            csv_content=csv_content,
+                            default_role=default_role,
+                            default_password="User@1234",
+                        )
+                        created_count = len(result["created"])
+                        skipped_count = len(result["skipped"])
+
+                        if created_count > 0:
+                            created_summary = f"Successfully created {created_count} user account(s) with default password User@1234."
+                            if skipped_count > 0:
+                                created_summary += f" ({skipped_count} existing account(s) skipped)."
+                            flash(created_summary, "success")
+                            last_bulk_created = result["created"]
+
+                        if skipped_count > 0 and created_count == 0:
+                            flash(f"{skipped_count} user(s) were skipped because they are already registered.", "warning")
+
+                        for err in result["errors"]:
+                            flash(err, "error")
+                    except Exception as exc:
+                        flash(f"Failed to process CSV: {exc}", "error")
 
         tokens = q.get_invite_tokens_for_org(org.id)
         return render_template(
@@ -3617,8 +3666,26 @@ class OrgAdminView(AdminBaseView):
             org=org,
             tokens=tokens,
             allowed_roles=sorted(allowed_roles),
+            bulk_allowed_roles=bulk_allowed_roles,
             created_invite_url=created_invite_url,
+            last_bulk_created=last_bulk_created,
             csrf_token=generate_csrf(),
+        )
+
+    @expose("/invite-links/sample-csv")
+    def invite_links_sample_csv(self):
+        org_id = require_org_admin()
+        sample_csv = (
+            "email,role,username\n"
+            "proofer1@example.com,p1,proofer_one\n"
+            "proofer2@example.com,p2,proofer_two\n"
+            "moderator1@example.com,moderator,mod_user\n"
+            "orgadmin1@example.com,org_admin,org_admin_one\n"
+        )
+        return Response(
+            sample_csv,
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=users_sample.csv"},
         )
 
     @expose("/access_control")

@@ -105,6 +105,9 @@ def soft_delete_user(model: db.User, session) -> None:
 
 
 def sync_user_org_and_roles(form, model: db.User, session, *, is_created: bool) -> None:
+    if is_created:
+        model.must_change_password = True
+
     if is_created or (getattr(form, "password", None) and form.password.data):
         if is_created and not form.password.data:
             raise ValueError("Password is required when creating a user.")
