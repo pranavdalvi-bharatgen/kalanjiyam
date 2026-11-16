@@ -346,7 +346,7 @@ def _parse_chandra_html(
             class_str = (" ".join(classes) if isinstance(classes, list) else str(classes)).lower()
             tag_name = el.name.lower()
 
-            if tag_name in ("figure", "img"):
+            if tag_name in ("figure", "img") or el.find(["img", "picture", "svg"]):
                 btype = "figure"
             elif any(w in label for w in ("image", "figure", "picture", "photo", "illustration", "diagram", "graphic", "drawing")):
                 btype = "figure"

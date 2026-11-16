@@ -417,3 +417,89 @@ def test_crop_elements_from_image_normalized_0_to_1_coords(tmp_path):
         assert cropped_im.size == (350, 500)
 
 
+def test_crop_elements_chandra_0_to_1000_and_missing_id(tmp_path):
+    img_path = str(tmp_path / "page_chandra_highres.png")
+    out_dir = str(tmp_path / "output_crops")
+    Image.new("RGB", (2000, 3000), color="white").save(img_path)
+
+    layout_data = {
+        "page_width": 2000,
+        "page_height": 3000,
+        "coordinate_space": "normalized",
+        "blocks": [
+            {
+                # id intentionally omitted to test fallback
+                "type": "figure",
+                "bbox": [100, 200, 500, 600],
+                "content": "",
+            }
+        ],
+    }
+    saved_paths = crop_elements_from_image(
+        image_path=img_path,
+        layout_data=layout_data,
+        project_slug=None,
+        output_dir=out_dir,
+    )
+    assert len(saved_paths) == 1
+    assert os.path.exists(saved_paths[0])
+    assert layout_data["blocks"][0].get("id") == "b001"
+    with Image.open(saved_paths[0]) as cropped_im:
+        # 100..500 on 2000 => 200..1000 (width=800)
+        # 200..600 on 3000 => 600..1800 (height=1200)
+        assert cropped_im.size == (800, 1200)
+
+    # Verify that pixel-coordinate bboxes < 1000 without normalized coordinate_space are NOT double-scaled
+    layout_pixel = {
+        "page_width": 2000,
+        "page_height": 3000,
+        "coordinate_space": "pixel",
+        "blocks": [
+            {
+                "type": "figure",
+                "bbox": [200, 300, 600, 750], # width=400, height=450
+                "content": "",
+            }
+        ],
+    }
+    pixel_paths = crop_elements_from_image(
+        image_path=img_path,
+        layout_data=layout_pixel,
+        project_slug=None,
+        output_dir=out_dir,
+    )
+    with Image.open(pixel_paths[0]) as im_px:
+        assert im_px.size == (400, 450)
+
+
+def test_process_document_chandra_html_and_json(tmp_path):
+    from scripts.crop_ocr_elements import process_document
+
+    img_path = str(tmp_path / "page.png")
+    out_dir = str(tmp_path / "out")
+    Image.new("RGB", (1000, 1000), color="white").save(img_path)
+
+    # 1. Test Chandra JSON payload with 'text' HTML and 'bounding_boxes'
+    json_path = str(tmp_path / "chandra_resp.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "text": '<div data-bbox="100 200 500 400"><img src="x"/></div>',
+                "bounding_boxes": [[100, 200, 500, 400, "Figure"]],
+            },
+            f,
+        )
+    res_json = process_document(img_path, json_path, out_dir)
+    assert len(res_json) == 1
+    assert os.path.exists(res_json[0])
+
+    # 2. Test raw Chandra HTML file
+    html_path = str(tmp_path / "chandra_page.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write('<figure data-bbox="150 250 550 450"><figcaption>Fig 1</figcaption></figure>')
+    res_html = process_document(img_path, html_path, out_dir)
+    assert len(res_html) == 1
+    assert os.path.exists(res_html[0])
+
+
+
