@@ -2594,8 +2594,10 @@ def translate(project_slug, page_slug):
                 )
             )
 
-            if has_content:
-                ensure_translation_quota_for_project(project_)
+            if not has_content:
+                abort(400, description=_l("No content to translate"))
+
+            ensure_translation_quota_for_project(project_)
 
             if blocks:
                 _translate_blocks(

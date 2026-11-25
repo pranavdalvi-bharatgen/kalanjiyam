@@ -341,7 +341,7 @@ class BaseConfig:
     DEFAULT_OCR_ENGINE = _env("DEFAULT_OCR_ENGINE", "gemma_ocr")
 
     #: Default Translation engine/model.
-    DEFAULT_TRANSLATION_ENGINE = _env("DEFAULT_TRANSLATION_ENGINE", "llm_gemma")
+    DEFAULT_TRANSLATION_ENGINE = _env("DEFAULT_TRANSLATION_ENGINE", "param_translate")
 
     #: Default model for OCR structure extraction via AI service chat completions.
     STRUCTURE_EXTRACT_MODEL = _env("STRUCTURE_EXTRACT_MODEL", "gemma-4")

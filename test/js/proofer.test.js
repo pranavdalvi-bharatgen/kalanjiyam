@@ -400,6 +400,7 @@ test('getVersionDisplayName formats masked OCR and Enhanced OCR correctly', () =
   expect(p.getVersionDisplayName('translation:indictrans3:sa->en')).toBe('Translation 1 (SA → EN)');
   expect(p.getVersionDisplayName('translation:indic_translate:sa->en')).toBe('Translation 2 (SA → EN)');
   expect(p.getVersionDisplayName('translation:llm_gemma:sa->en')).toBe('Translation 3 (SA → EN)');
+  expect(p.getVersionDisplayName('translation:param_translate:sa->en')).toBe('Translation 4 (SA → EN)');
   expect(p.getVersionDisplayName('translation:param_lc_translate_ep4:sa->en')).toBe('Translation 4 (SA → EN)');
 });
 
@@ -435,7 +436,7 @@ test('decodeEngine and decodeTranslationEngine map 1..4 correctly', () => {
   expect(p.decodeTranslationEngine('1')).toBe('indictrans3');
   expect(p.decodeTranslationEngine('2')).toBe('indic_translate');
   expect(p.decodeTranslationEngine('3')).toBe('llm_gemma');
-  expect(p.decodeTranslationEngine('4')).toBe('param_lc_translate_ep4');
+  expect(p.decodeTranslationEngine('4')).toBe('param_translate');
   expect(p.decodeTranslationEngine('5')).toBe('indictrans3');
   expect(p.decodeTranslationEngine('8')).toBe('llm_gemma');
   expect(p.decodeTranslationEngine('10')).toBe('indic_translate');
@@ -449,6 +450,8 @@ test('getTranslationDisplayName formats translation engines correctly', () => {
   expect(p.getTranslationDisplayName('indic-translate')).toBe('Translation 2');
   expect(p.getTranslationDisplayName('llm_gemma')).toBe('Translation 3');
   expect(p.getTranslationDisplayName('llm-gemma')).toBe('Translation 3');
+  expect(p.getTranslationDisplayName('param_translate')).toBe('Translation 4');
+  expect(p.getTranslationDisplayName('param-translate')).toBe('Translation 4');
   expect(p.getTranslationDisplayName('param_lc_translate_ep4')).toBe('Translation 4');
   expect(p.getTranslationDisplayName('param')).toBe('Translation 4');
 });

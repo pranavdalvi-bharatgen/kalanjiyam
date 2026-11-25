@@ -463,7 +463,7 @@ class BharatGenTranslateEngine(TranslationEngine):
 
     def __init__(
         self,
-        model_name: str = "param_lc_translate_ep4",
+        model_name: str = "param-translate",
         api_url: Optional[str] = None,
         api_key: Optional[str] = None,
     ):
@@ -495,10 +495,7 @@ class BharatGenTranslateEngine(TranslationEngine):
             )
 
         if not api_url:
-            api_url = (
-                os.environ.get("BHARATGEN_TRANSLATION_API_URL")
-                or "https://api.bharatgen.dev/v1/chat/completions"
-            )
+            api_url = os.environ.get("BHARATGEN_TRANSLATION_API_URL")
 
         if not api_key:
             api_key = os.environ.get(
@@ -525,6 +522,8 @@ class BharatGenTranslateEngine(TranslationEngine):
             if targets:
                 base = targets[0][0].rstrip('/')
                 api_url = f"{base}/chat/completions"
+            else:
+                api_url = "https://api.bharatgen.dev/v1/chat/completions"
 
         if not api_key and os.environ.get("PYTEST_CURRENT_TEST"):
             api_key = "test-bharatgen-key"
@@ -579,7 +578,14 @@ class BharatGenTranslateEngine(TranslationEngine):
             user_content = f"Translate the following text from {source_name} to {target_name} using domain terms ({kwargs['glossary']}):\n\n{text}"
 
         target_model = self.model_name
-        if target_model in ("param_lc_translate_ep4", "param", "param_lc"):
+        if target_model in (
+            "param_translate",
+            "param-translate",
+            "param_lc_translate_ep4",
+            "param-lc-translate-ep4",
+            "param",
+            "param_lc",
+        ):
             target_model = "bharatgen-param"
 
         payload = {
@@ -969,7 +975,7 @@ SUPPORTED_TRANSLATION_ENGINES = [
     "indictrans3",
     "indic_translate",
     "llm_gemma",
-    "param_lc_translate_ep4",
+    "param_translate",
 ]
 
 TRANSLATION_SERVICE_ENGINE_ALIASES = {
@@ -986,22 +992,24 @@ TRANSLATION_SERVICE_ENGINE_ALIASES = {
     "gemma": "llm_gemma",
     "gemma-4": "llm_gemma",
     "gemma4": "llm_gemma",
-    "param-lc-translate-ep4": "param_lc_translate_ep4",
-    "param_lc": "param_lc_translate_ep4",
-    "param": "param_lc_translate_ep4",
-    "param_lc_translate_ep4": "param_lc_translate_ep4",
+    "param-translate": "param_translate",
+    "param_translate": "param_translate",
+    "param-lc-translate-ep4": "param_translate",
+    "param_lc": "param_translate",
+    "param": "param_translate",
+    "param_lc_translate_ep4": "param_translate",
 }
 
 TRANSLATION_ENGINE_MAP = {
     "1": "indictrans3",
     "2": "indic_translate",
     "3": "llm_gemma",
-    "4": "param_lc_translate_ep4",
+    "4": "param_translate",
 }
 
 LEGACY_TRANSLATION_ENGINE_MAP = {
     "1": "indictrans2",
-    "3": "param_lc_translate_ep4",
+    "3": "param_translate",
     "5": "indictrans3",
     "8": "llm_gemma",
     "10": "indic_translate",
@@ -1013,7 +1021,9 @@ REVERSE_TRANSLATION_ENGINE_MAP["indictrans-3"] = "1"
 REVERSE_TRANSLATION_ENGINE_MAP["indictrans_3"] = "1"
 REVERSE_TRANSLATION_ENGINE_MAP["llm-gemma"] = "3"
 REVERSE_TRANSLATION_ENGINE_MAP["param"] = "4"
+REVERSE_TRANSLATION_ENGINE_MAP["param-translate"] = "4"
 REVERSE_TRANSLATION_ENGINE_MAP["param-lc-translate-ep4"] = "4"
+REVERSE_TRANSLATION_ENGINE_MAP["param_lc_translate_ep4"] = "4"
 REVERSE_TRANSLATION_ENGINE_MAP["param_lc"] = "4"
 
 TRANSLATION_ENGINE_LABELS = {
@@ -1022,8 +1032,10 @@ TRANSLATION_ENGINE_LABELS = {
     "indic-translate": "Indic-Translate",
     "llm_gemma": "LLM Gemma",
     "llm-gemma": "LLM Gemma",
-    "param_lc_translate_ep4": "Param LC Translate EP4",
-    "param": "Param LC Translate EP4",
+    "param_translate": "Param Translate",
+    "param-translate": "Param Translate",
+    "param_lc_translate_ep4": "Param Translate",
+    "param": "Param Translate",
 }
 
 
@@ -1126,16 +1138,14 @@ class TranslationEngineFactory:
         "indictrans2": lambda: GenericTranslationEngine("indictrans2"),
         "indic_translate": lambda: GenericTranslationEngine("indic_translate"),
         "llm_gemma": lambda: LlmGemmaTranslateEngine(),
-        "param_lc_translate_ep4": lambda: BharatGenTranslateEngine(
-            "param_lc_translate_ep4"
-        ),
+        "param_translate": lambda: BharatGenTranslateEngine("param-translate"),
     }
 
     @classmethod
     def create(cls, engine_name: str, **kwargs) -> TranslationEngine:
         """Create a translation engine instance dynamically.
 
-        :param engine_name: Name of the engine ('indictrans2', 'gemma', 'llm_gemma', 'param_lc_translate_ep4', 'translation_1b_exp_40', or any backend model)
+        :param engine_name: Name of the engine ('indictrans2', 'gemma', 'llm_gemma', 'param_translate', 'translation_1b_exp_40', or any backend model)
         :param kwargs: Additional arguments for the engine
         :return: Translation engine instance
         :raises: ValueError if engine name is not supported
@@ -1154,12 +1164,13 @@ class TranslationEngineFactory:
             return LlmGemmaTranslateEngine(**kwargs)
         if (
             engine_name == "bharatgen"
-            or engine_name in ("param_lc_translate_ep4", "translation_1b_exp_40")
+            or engine_name in ("param_translate", "param-translate", "param_lc_translate_ep4", "translation_1b_exp_40")
             or "param_lc" in engine_name
+            or "param_translate" in engine_name
             or "translation_1b" in engine_name
             or "bharatgen" in engine_name
         ):
-            model_name = "param_lc_translate_ep4" if engine_name == "bharatgen" else engine_name
+            model_name = "param-translate" if engine_name in ("bharatgen", "param_translate") else engine_name
             return BharatGenTranslateEngine(model_name, **kwargs)
         return GenericTranslationEngine(engine_name)
 
@@ -1446,7 +1457,7 @@ def get_available_translation_engines() -> List[Dict[str, str]]:
                             elif "indic" in family_part.lower() and "translate" in family_part.lower():
                                 engine_val = "indic_translate"
                             elif "param" in family_part.lower() or "bharatgen" in family_part.lower():
-                                engine_val = "param_lc_translate_ep4"
+                                engine_val = "param_translate"
                             else:
                                 engine_val = family_part.split('-')[0]
                         else:
@@ -1457,7 +1468,7 @@ def get_available_translation_engines() -> List[Dict[str, str]]:
                             elif "indic" in name.lower() and "translate" in name.lower():
                                 engine_val = "indic_translate"
                             elif "param" in name.lower() or "bharatgen" in name.lower():
-                                engine_val = "param_lc_translate_ep4"
+                                engine_val = "param_translate"
                             else:
                                 engine_val = "gemma" if "gemma" in name.lower() else name
                     else:
@@ -1478,9 +1489,11 @@ def get_available_translation_engines() -> List[Dict[str, str]]:
                             'indic-translate': 'Indic-Translate',
                             'llm_gemma': 'LLM Gemma',
                             'llm-gemma': 'LLM Gemma',
-                            'param_lc_translate_ep4': 'Param LC Translate EP4',
-                            'bharatgen_param': 'Param LC Translate EP4',
-                            'bharatgen-param': 'Param LC Translate EP4',
+                            'param_translate': 'Param Translate',
+                            'param-translate': 'Param Translate',
+                            'param_lc_translate_ep4': 'Param Translate',
+                            'bharatgen_param': 'Param Translate',
+                            'bharatgen-param': 'Param Translate',
                             'translation_1b_exp_40': 'Translation 1B Exp 40',
                         }
                         label_val = label_map.get(engine_val, engine_val.replace('_', ' ').replace('-', ' ').title())
@@ -1516,10 +1529,10 @@ def get_available_translation_engines() -> List[Dict[str, str]]:
             'label': 'LLM Gemma',
             'model_name': 'gemma-4',
         }
-        seen_engines['param_lc_translate_ep4'] = {
-            'value': 'param_lc_translate_ep4',
-            'label': 'Param LC Translate EP4',
-            'model_name': 'param_lc_translate_ep4',
+        seen_engines['param_translate'] = {
+            'value': 'param_translate',
+            'label': 'Param Translate',
+            'model_name': 'param-translate',
         }
 
     # Add gemma-4 model
@@ -1533,9 +1546,9 @@ def get_available_translation_engines() -> List[Dict[str, str]]:
 
     # Add BharatGen param model
     param_model = {
-        'value': 'param_lc_translate_ep4',
-        'label': 'Param LC Translate EP4',
-        'model_name': 'param_lc_translate_ep4',
+        'value': 'param_translate',
+        'label': 'Param Translate',
+        'model_name': 'param-translate',
     }
     if param_model['value'] not in seen_engines:
         seen_engines[param_model['value']] = param_model
@@ -1544,7 +1557,7 @@ def get_available_translation_engines() -> List[Dict[str, str]]:
         'indictrans3': 0,
         'indic_translate': 1,
         'llm_gemma': 2,
-        'param_lc_translate_ep4': 3,
+        'param_translate': 3,
     }
     sorted_choices = sorted(
         list(seen_engines.values()),
