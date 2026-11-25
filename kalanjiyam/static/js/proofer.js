@@ -2099,12 +2099,20 @@ export default () => ({
     }
   },
 
+  get hasTranslatableContent() {
+    if (!this.pageDocument) return false;
+    const plain = documentToPlainText(this.pageDocument);
+    if (plain && plain.trim().length > 0) return true;
+    const blocks = this.pageDocument.blocks || [];
+    return blocks.some((b) => (b.text || b.content || b.html || '').trim().length > 0);
+  },
+
   // Translation controls
   async runTranslation(engine = '1', sourceLang = 'sa', targetLang = 'en', glossaries = []) {
     console.log('=== TRANSLATION DEBUG START ===');
     
-    if (!this.pageDocument) {
-      this.showNotification('No document content found to translate.', 'error');
+    if (!this.hasTranslatableContent) {
+      this.showNotification('No text to translate yet. Please run OCR first to extract text from this page.', 'error');
       return;
     }
 

@@ -989,14 +989,27 @@ these components in our help text and documentation.
 {% macro _book_translation_controls(button_css, translation_engines=[], default_translation_value="1") %}
 <div class="relative" @click.outside="translationDropdownOpen=false; openSrc=false; openTgt=false">
   <button class="{{ button_css }} flex items-center justify-center"
+     :class="!hasTranslatableContent ? 'opacity-60' : ''"
      @click.prevent="translationDropdownOpen=!translationDropdownOpen; if (translationDropdownOpen) { ocrDropdownOpen=false; enhancedOcrDropdownOpen=false; } else { openSrc=false; openTgt=false; }"
-     title="{{ _('Translation') }}">
+     :title="hasTranslatableContent ? '{{ _('Translation') }}' : '{{ _('Translation (run OCR first — no text on this page yet)') }}'">
     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"></path>
     </svg>
   </button>
   <div x-show="translationDropdownOpen" x-cloak class="dropdown-pane w-80 right-0 left-auto z-50" x-data="{ openSrc: false, openTgt: false }">
     <ul class="text-sm">
+      <li x-show="!hasTranslatableContent" x-cloak class="px-3 pt-2">
+        <div class="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs leading-relaxed">
+          <p class="font-semibold mb-1">{{ _('No text on this page yet') }}</p>
+          <p class="text-amber-800 mb-2">{{ _('Run OCR first to extract text from the scan, then translate.') }}</p>
+          <button type="button"
+                  x-show="!isDocx"
+                  @click.prevent.stop="translationDropdownOpen=false; ocrDropdownOpen=true; updateLanguageOptions()"
+                  class="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg py-1.5 px-2.5 text-xs transition-colors">
+            {{ _('Open OCR') }}
+          </button>
+        </div>
+      </li>
       <li class="mb-3 px-3 pt-2">
         <label class="block text-xs text-slate-500 mb-2 font-medium">{{ _('Translation engine') }}</label>
         <div class="grid grid-cols-2 gap-2" x-init="if (![{% for e in translation_engines %}'{{ e.value }}',{% endfor %}].includes(selectedTranslationEngine)) { selectedTranslationEngine = '{{ default_translation_value }}'; }">
@@ -1126,10 +1139,11 @@ these components in our help text and documentation.
       </li>
       <li class="border-t border-slate-100 pt-2 px-3 pb-2">
         <button type="button"
-                class="w-full bg-slate-800 text-white rounded-lg py-2 text-sm hover:bg-slate-700 transition-colors"
-                @click.prevent.stop="runTranslation(selectedTranslationEngine, sourceLanguage, targetLanguage, selectedGlossaries); translationDropdownOpen=false"
-                :disabled="isRunningTranslation"
-                x-text="isRunningTranslation ? '{{ _("Translating ...") }}' : '{{ _("Translate Page") }}'"></button>
+                class="w-full bg-slate-800 text-white rounded-lg py-2 text-sm transition-colors"
+                :class="(isRunningTranslation || !hasTranslatableContent) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-700'"
+                @click.prevent.stop="if (!hasTranslatableContent) return; runTranslation(selectedTranslationEngine, sourceLanguage, targetLanguage, selectedGlossaries); translationDropdownOpen=false"
+                :disabled="isRunningTranslation || !hasTranslatableContent"
+                x-text="isRunningTranslation ? '{{ _("Translating ...") }}' : (!hasTranslatableContent ? '{{ _("Run OCR First to Translate") }}' : '{{ _("Translate Page") }}')"></button>
       </li>
     </ul>
   </div>
