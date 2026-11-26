@@ -821,3 +821,72 @@ class TestLlmGemmaTranslateEngine:
             assert call_url == "http://10.195.100.51:4000/v1/chat/completions"
             assert mock_client.post.call_args[1]["headers"]["X-API-Key"] == "sk-test"
             assert mock_client.post.call_args[1]["headers"]["Authorization"] == "Bearer sk-test"
+
+
+class TestMixedLanguageTranslationHelpers:
+    def test_sentence_split_and_is_matching_language(self):
+        from kalanjiyam.utils.translation_engine import (
+            SENTENCE_SPLIT_REGEX,
+            is_matching_language,
+        )
+
+        line = "1. (a) Direction and distance from P.S. (पोलीस ठाण्या पासून दिशा आणि अंतर): पश्चिम, 35 कि.मी. Beat No. (बीट क्र.):"
+        assert SENTENCE_SPLIT_REGEX.split(line) == [line]
+        assert is_matching_language("१८८७", "mr") is True
+        assert is_matching_language("2026", "mr") is False
+        assert is_matching_language("FIRST INFORMATION REPORT", "mr") is False
+
+    def test_translate_remaining_source_spans_mixed_marathi_english(self):
+        from kalanjiyam.utils.translation_engine import (
+            TranslationEngine,
+            TranslationResponse,
+            translate_text,
+        )
+
+        class MockMixedEngine(TranslationEngine):
+            def __init__(self):
+                self.calls = []
+
+            def translate(self, text, source_lang, target_lang, **kwargs):
+                self.calls.append(text)
+                if "District (जिल्हा)" in text:
+                    # Simulate model leaving Devanagari portions untranslated in mixed line
+                    return TranslationResponse(
+                        translated_text=text,
+                        source_language=source_lang,
+                        target_language=target_lang,
+                        engine="mock",
+                    )
+                mapping = {
+                    "जिल्हा": "District",
+                    "धुळे": "Dhule",
+                    "पोलीस ठाणे": "Police Station",
+                    "धुळे तालुका": "Dhule Taluka",
+                    "वर्ष": "Year",
+                }
+                parts = [mapping.get(s.strip(), s.strip()) for s in text.split("\n\n")]
+                return TranslationResponse(
+                    translated_text="\n\n".join(parts),
+                    source_language=source_lang,
+                    target_language=target_lang,
+                    engine="mock",
+                )
+
+            def get_supported_languages(self):
+                return ["mr", "en"]
+
+        mock_engine = MockMixedEngine()
+        with patch(
+            "kalanjiyam.utils.translation_engine.TranslationEngineFactory.create",
+            return_value=mock_engine,
+        ):
+            resp = translate_text(
+                "1. District (जिल्हा): धुळे P.S. (पोलीस ठाणे): धुळे तालुका Year (वर्ष): 2026",
+                "mr",
+                "en",
+                "param_translate",
+            )
+        assert resp.translated_text == (
+            "1. District (District): Dhule P.S. (Police Station): Dhule Taluka Year (Year): 2026"
+        )
+        assert len(mock_engine.calls) == 2

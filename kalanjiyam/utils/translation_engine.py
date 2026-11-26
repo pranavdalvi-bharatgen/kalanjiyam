@@ -1198,6 +1198,22 @@ SENTENCE_SPLIT_REGEX = re.compile(
 )
 
 
+SCRIPT_RANGES = {
+    "ta": r"[\u0B80-\u0BFF]",  # Tamil
+    "te": r"[\u0C00-\u0C7F]",  # Telugu
+    "kn": r"[\u0C80-\u0CFF]",  # Kannada
+    "ml": r"[\u0D00-\u0D7F]",  # Malayalam
+    "hi": r"[\u0900-\u097F]",  # Hindi
+    "sa": r"[\u0900-\u097F]",  # Sanskrit
+    "bn": r"[\u0980-\u09FF]",  # Bengali
+    "gu": r"[\u0A80-\u0AFF]",  # Gujarati
+    "or": r"[\u0B00-\u0B7F]",  # Odia
+    "pa": r"[\u0A00-\u0A7F]",  # Punjabi / Gurmukhi
+    "ur": r"[\u0600-\u06FF]",  # Urdu / Arabic
+    "mr": r"[\u0900-\u097F]",  # Marathi
+}
+
+
 def is_matching_language(text: str, lang: str) -> bool:
     """Check if the text segment matches the selected source language."""
     if not text:
@@ -1214,23 +1230,8 @@ def is_matching_language(text: str, lang: str) -> bool:
             return False
         return True
 
-    script_ranges = {
-        "ta": r"[\u0B80-\u0BFF]",  # Tamil
-        "te": r"[\u0C00-\u0C7F]",  # Telugu
-        "kn": r"[\u0C80-\u0CFF]",  # Kannada
-        "ml": r"[\u0D00-\u0D7F]",  # Malayalam
-        "hi": r"[\u0900-\u097F]",  # Hindi
-        "sa": r"[\u0900-\u097F]",  # Sanskrit
-        "bn": r"[\u0980-\u09FF]",  # Bengali
-        "gu": r"[\u0A80-\u0AFF]",  # Gujarati
-        "or": r"[\u0B00-\u0B7F]",  # Odia
-        "pa": r"[\u0A00-\u0A7F]",  # Punjabi / Gurmukhi
-        "ur": r"[\u0600-\u06FF]",  # Urdu / Arabic
-        "mr": r"[\u0900-\u097F]",  # Marathi
-    }
-
-    if lang in script_ranges:
-        return bool(re.search(script_ranges[lang], text))
+    if lang in SCRIPT_RANGES:
+        return bool(re.search(SCRIPT_RANGES[lang], text))
 
     return any(c.isalpha() for c in text)
 
@@ -1341,6 +1342,58 @@ def restore_dnt_and_math(text: str, dnt_map: dict[str, str]) -> str:
     return result
 
 
+def _translate_remaining_source_spans(
+    translated_text: str,
+    source_lang: str,
+    target_lang: str,
+    engine: TranslationEngine,
+    **kwargs,
+) -> str:
+    """Translate any leftover source-script phrases when translating to a different script."""
+    if not translated_text:
+        return translated_text
+
+    base_src = source_lang.split("_")[0].lower() if source_lang else ""
+    base_tgt = target_lang.split("_")[0].lower() if target_lang else ""
+    src_range = SCRIPT_RANGES.get(base_src)
+    tgt_range = SCRIPT_RANGES.get(base_tgt)
+
+    if not src_range or tgt_range == src_range or not re.search(src_range, translated_text):
+        return translated_text
+
+    span_pattern = re.compile(rf"{src_range}(?:[ \t,.\-/:]*{src_range})*")
+    matches = span_pattern.findall(translated_text)
+    if not matches:
+        return translated_text
+
+    unique_spans = list(dict.fromkeys(m for m in matches if m.strip()))
+    if not unique_spans:
+        return translated_text
+
+    try:
+        batch_resp = engine.translate(
+            "\n\n".join(unique_spans), source_lang, target_lang, **kwargs
+        )
+        batch_out = (batch_resp.translated_text or "") if batch_resp else ""
+        translated_parts = [p.strip() for p in batch_out.split("\n\n")]
+        if len(translated_parts) != len(unique_spans):
+            translated_parts = [p.strip() for p in batch_out.splitlines() if p.strip()]
+
+        if len(translated_parts) == len(unique_spans):
+            span_map = dict(zip(unique_spans, translated_parts))
+        else:
+            span_map = {}
+            for span in unique_spans:
+                resp = engine.translate(span, source_lang, target_lang, **kwargs)
+                if resp and resp.translated_text:
+                    span_map[span] = resp.translated_text.strip()
+
+        return span_pattern.sub(lambda m: span_map.get(m.group(0), m.group(0)), translated_text)
+    except Exception as e:
+        logging.warning(f"Remaining source-span translation pass failed: {e}")
+        return translated_text
+
+
 def translate_text(text: str, source_lang: str, target_lang: str, engine_name: str = 'indictrans3', **kwargs) -> TranslationResponse:
     """Convenience function to translate text using the specified engine.
     
@@ -1367,6 +1420,11 @@ def translate_text(text: str, source_lang: str, target_lang: str, engine_name: s
 
         engine = TranslationEngineFactory.create(engine_name, **kwargs)
         response = engine.translate(protected_text, source_lang, target_lang, **kwargs)
+
+        if response and response.translated_text:
+            response.translated_text = _translate_remaining_source_spans(
+                response.translated_text, source_lang, target_lang, engine, **kwargs
+            )
 
         latency_ms = round((time.time() - start_time) * 1000, 2)
         try:
