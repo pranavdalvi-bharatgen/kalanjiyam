@@ -568,6 +568,7 @@ class BharatGenTranslateEngine(TranslationEngine):
 
         system_content = (
             f"You are a professional machine translation system. Your sole task is to accurately translate text from {source_name} to {target_name}. "
+            f"If the input contains mixed languages (including text already in {target_name}), keep the existing {target_name} text as-is and translate all {source_name} (and any other non-{target_name}) portions into {target_name} so the entire output is in {target_name}. "
             f"Output ONLY the direct translated text. "
             f"Do NOT write any introduction, notes, explanations, preambles, or labels (e.g. do NOT output 'Here is the translation', 'Translation:', 'In {target_name}:', '{target_name}:', 'Translated to {target_name}:'). "
             f"Preserve all line breaks, formatting, and special tags exactly."
@@ -816,6 +817,7 @@ class LlmGemmaTranslateEngine(TranslationEngine):
         prompt = (
             f"You are a professional machine translation system. "
             f"Translate the following text from {source_name} to {target_name}.{glossary_part}\n"
+            f"If the input contains mixed languages (including text already in {target_name}), keep the existing {target_name} text as-is and translate all {source_name} (and any other non-{target_name}) portions into {target_name} so the entire output is in {target_name}.\n"
             f"Maintain the original formatting, line breaks, and structure.\n"
             f"Output ONLY the direct translated text. Do not add any explanations, notes, labels, or preamble.\n\n"
             f"Text to translate:\n{text}"
@@ -1189,6 +1191,48 @@ class TranslationEngineFactory:
         if not engine_name or engine_name in ["unsupported"]:
             return False
         return True
+
+
+SENTENCE_SPLIT_REGEX = re.compile(
+    r"((?<!\bMs\.)(?<!\bMr\.)(?<!\bDr\.)(?<!\bProf\.)(?<!\bSr\.)(?<!\bJr\.)(?<!\bNo\.)(?<!\bSt\.)(?<!\b[A-Za-z]\.)(?<!\b\d\.)(?<!क्र\.)(?<!मी\.)(?<!ता\.)(?<!जि\.)(?<=[.!?।॥])\s+|\n+)"
+)
+
+
+def is_matching_language(text: str, lang: str) -> bool:
+    """Check if the text segment matches the selected source language."""
+    if not text:
+        return False
+
+    lang = lang.lower()
+
+    if lang == "en":
+        if not any(c.isalpha() for c in text):
+            return False
+        if not re.search(r"[a-zA-Z]", text):
+            return False
+        if re.search(r"[\u0900-\u0D7F\u0600-\u06FF]", text):
+            return False
+        return True
+
+    script_ranges = {
+        "ta": r"[\u0B80-\u0BFF]",  # Tamil
+        "te": r"[\u0C00-\u0C7F]",  # Telugu
+        "kn": r"[\u0C80-\u0CFF]",  # Kannada
+        "ml": r"[\u0D00-\u0D7F]",  # Malayalam
+        "hi": r"[\u0900-\u097F]",  # Hindi
+        "sa": r"[\u0900-\u097F]",  # Sanskrit
+        "bn": r"[\u0980-\u09FF]",  # Bengali
+        "gu": r"[\u0A80-\u0AFF]",  # Gujarati
+        "or": r"[\u0B00-\u0B7F]",  # Odia
+        "pa": r"[\u0A00-\u0A7F]",  # Punjabi / Gurmukhi
+        "ur": r"[\u0600-\u06FF]",  # Urdu / Arabic
+        "mr": r"[\u0900-\u097F]",  # Marathi
+    }
+
+    if lang in script_ranges:
+        return bool(re.search(script_ranges[lang], text))
+
+    return any(c.isalpha() for c in text)
 
 
 def protect_dnt_and_math(text: str) -> tuple[str, dict[str, str]]:

@@ -575,37 +575,10 @@ def run_docx_translation(
                 LOG.error(f"Error saving original DOCX data to DB: {save_err}")
 
 
-        import re
-
-        SENTENCE_SPLIT_REGEX = re.compile(r'((?<=[.!?।॥])\s+|\n+)')
-
-        def _is_matching_language(text: str, lang: str) -> bool:
-            if not any(c.isalpha() for c in text):
-                return False
-            lang = lang.lower()
-            if lang == 'en':
-                if not re.search(r'[a-zA-Z]', text):
-                    return False
-                if re.search(r'[\u0900-\u0D7F\u0600-\u06FF]', text):
-                    return False
-                return True
-            script_ranges = {
-                'ta': r'[\u0B80-\u0BFF]', # Tamil
-                'te': r'[\u0C00-\u0C7F]', # Telugu
-                'kn': r'[\u0C80-\u0CFF]', # Kannada
-                'ml': r'[\u0D00-\u0D7F]', # Malayalam
-                'hi': r'[\u0900-\u097F]', # Hindi
-                'sa': r'[\u0900-\u097F]', # Sanskrit
-                'bn': r'[\u0980-\u09FF]', # Bengali
-                'gu': r'[\u0A80-\u0AFF]', # Gujarati
-                'or': r'[\u0B00-\u0B7F]', # Odia
-                'pa': r'[\u0A00-\u0A7F]', # Punjabi / Gurmukhi
-                'ur': r'[\u0600-\u06FF]', # Urdu / Arabic
-                'mr': r'[\u0900-\u097F]', # Marathi
-            }
-            if lang in script_ranges:
-                return bool(re.search(script_ranges[lang], text))
-            return True
+        from kalanjiyam.utils.translation_engine import (
+            SENTENCE_SPLIT_REGEX,
+            is_matching_language as _is_matching_language,
+        )
 
         def _is_safe_run(run):
             xml = run._element.xml

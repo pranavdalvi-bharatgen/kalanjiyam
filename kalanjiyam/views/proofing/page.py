@@ -45,18 +45,16 @@ from kalanjiyam.utils.quotas import (
     ensure_translation_quota_for_project,
 )
 from kalanjiyam.utils.revisions import EditError, add_revision, parse_document_field
-from kalanjiyam.utils.translation_engine import translate_text
+from kalanjiyam.utils.translation_engine import (
+    SENTENCE_SPLIT_REGEX,
+    is_matching_language as _is_matching_language,
+    translate_text,
+)
 from kalanjiyam.views.api import bp as api
 from kalanjiyam.views.proofing.decorators import p2_required
 
 bp = Blueprint("page", __name__)
 logger = logging.getLogger(__name__)
-
-
-
-SENTENCE_SPLIT_REGEX = re.compile(
-    r"((?<!\bMs\.)(?<!\bMr\.)(?<!\bDr\.)(?<!\bProf\.)(?<!\bSr\.)(?<!\bJr\.)(?<=[.!?।॥])\s+|\n+)"
-)
 
 
 @bp.before_request
@@ -2200,49 +2198,6 @@ def replace_page_image(project_slug, page_slug):
             f"Failed to replace page image for {project_slug}/{page_slug}: {e}"
         )
         abort(500, description=_l("Image replacement failed: %(error)s", error=str(e)))
-
-
-def _is_matching_language(text: str, lang: str) -> bool:
-    """Check if the text segment matches the selected source language."""
-    import re
-
-    # Clean text to get only letters/alphabetic content.
-    # If no alphabetic chars, return False.
-    if not any(c.isalpha() for c in text):
-        return False
-
-    lang = lang.lower()
-
-    # 1. English
-    if lang == "en":
-        # Must contain Latin characters
-        if not re.search(r"[a-zA-Z]", text):
-            return False
-        # Must not contain Indic script characters (Devanagari, Tamil, etc.) or Arabic/Urdu script.
-        if re.search(r"[\u0900-\u0D7F\u0600-\u06FF]", text):
-            return False
-        return True
-
-    # Script ranges maps for other supported source languages
-    script_ranges = {
-        "ta": r"[\u0B80-\u0BFF]",  # Tamil
-        "te": r"[\u0C00-\u0C7F]",  # Telugu
-        "kn": r"[\u0C80-\u0CFF]",  # Kannada
-        "ml": r"[\u0D00-\u0D7F]",  # Malayalam
-        "hi": r"[\u0900-\u097F]",  # Hindi
-        "sa": r"[\u0900-\u097F]",  # Sanskrit
-        "bn": r"[\u0980-\u09FF]",  # Bengali
-        "gu": r"[\u0A80-\u0AFF]",  # Gujarati
-        "or": r"[\u0B00-\u0B7F]",  # Odia
-        "pa": r"[\u0A00-\u0A7F]",  # Punjabi / Gurmukhi
-        "ur": r"[\u0600-\u06FF]",  # Urdu / Arabic
-        "mr": r"[\u0900-\u097F]",  # Marathi
-    }
-
-    if lang in script_ranges:
-        return bool(re.search(script_ranges[lang], text))
-
-    return True
 
 
 def _clean_translation_input(text: str) -> str:
