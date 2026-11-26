@@ -1614,46 +1614,67 @@ def get_available_translation_engines() -> List[Dict[str, str]]:
         except Exception as e:
             logging.warning(f"Failed to fetch translation models from {base_url}: {e}")
 
-    # Fallback to default remote engines if none discovered
-    if not seen_engines:
-        seen_engines['indictrans3'] = {
-            'value': 'indictrans3',
-            'label': 'IndicTrans v3',
-            'model_name': 'ai4bharat/indictrans3',
-        }
-        seen_engines['indic_translate'] = {
-            'value': 'indic_translate',
-            'label': 'Indic-Translate',
-            'model_name': 'bodhan-ai/indic-translate',
-        }
-        seen_engines['llm_gemma'] = {
-            'value': 'llm_gemma',
-            'label': 'LLM Gemma',
-            'model_name': 'gemma-4',
-        }
-        seen_engines['param_translate'] = {
-            'value': 'param_translate',
-            'label': 'Param Translate',
-            'model_name': 'param-translate',
+    # Check separate dedicated endpoints for llm_gemma and param_translate only if configured
+    def _is_endpoint_live(url: str, key: str = "") -> bool:
+        if not url:
+            return False
+        base = url.rstrip("/")
+        if base.endswith("/chat/completions"):
+            base = base[: -len("/chat/completions")]
+        elif base.endswith("/ocr"):
+            base = base[: -len("/ocr")]
+        models_url = f"{base}/models" if base.endswith("/v1") else f"{base}/v1/models"
+        req_headers = {}
+        if key and str(key).strip():
+            clean = str(key).strip().strip("'").strip('"')
+            req_headers["Authorization"] = f"Bearer {clean}"
+            req_headers["X-API-Key"] = clean
+        try:
+            with httpx.Client(timeout=3.0, trust_env=False) as client:
+                r = client.get(models_url, headers=req_headers)
+                return r.status_code == 200
+        except Exception:
+            return False
+
+    import os
+    gemma_url = (
+        (current_app.config.get("LLM_GEMMA_TRANSLATION_API_URL") if has_app_context() else None)
+        or os.environ.get("LLM_GEMMA_TRANSLATION_API_URL")
+        or ""
+    )
+    gemma_key = (
+        (current_app.config.get("LLM_GEMMA_TRANSLATION_API_KEY") if has_app_context() else None)
+        or os.environ.get("LLM_GEMMA_TRANSLATION_API_KEY")
+        or ""
+    )
+    if "llm_gemma" not in seen_engines and gemma_url and _is_endpoint_live(gemma_url, gemma_key):
+        seen_engines["llm_gemma"] = {
+            "value": "llm_gemma",
+            "label": "LLM Gemma",
+            "model_name": "gemma-4",
         }
 
-    # Add gemma-4 model
-    llm_gemma_model = {
-        'value': 'llm_gemma',
-        'label': 'LLM Gemma',
-        'model_name': 'gemma-4',
-    }
-    if llm_gemma_model['value'] not in seen_engines:
-        seen_engines[llm_gemma_model['value']] = llm_gemma_model
-
-    # Add BharatGen param model
-    param_model = {
-        'value': 'param_translate',
-        'label': 'Param Translate',
-        'model_name': 'param-translate',
-    }
-    if param_model['value'] not in seen_engines:
-        seen_engines[param_model['value']] = param_model
+    bharatgen_url = (
+        (current_app.config.get("BHARATGEN_TRANSLATION_API_URL") if has_app_context() else None)
+        or os.environ.get("BHARATGEN_TRANSLATION_API_URL")
+        or ""
+    )
+    bharatgen_key = (
+        (
+            (current_app.config.get("BHARATGEN_TRANSLATION_API_KEY") or current_app.config.get("BHARATGEN_API_KEY"))
+            if has_app_context()
+            else None
+        )
+        or os.environ.get("BHARATGEN_TRANSLATION_API_KEY")
+        or os.environ.get("BHARATGEN_API_KEY")
+        or ""
+    )
+    if "param_translate" not in seen_engines and bharatgen_url and bharatgen_key and _is_endpoint_live(bharatgen_url, bharatgen_key):
+        seen_engines["param_translate"] = {
+            "value": "param_translate",
+            "label": "Param Translate",
+            "model_name": "param-translate",
+        }
 
     sort_order = {
         'indictrans3': 0,

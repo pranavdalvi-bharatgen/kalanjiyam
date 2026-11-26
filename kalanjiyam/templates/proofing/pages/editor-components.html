@@ -1012,6 +1012,7 @@ these components in our help text and documentation.
       </li>
       <li class="mb-3 px-3 pt-2">
         <label class="block text-xs text-slate-500 mb-2 font-medium">{{ _('Translation engine') }}</label>
+        {% if translation_engines %}
         <div class="grid grid-cols-2 gap-2" x-init="if (![{% for e in translation_engines %}'{{ e.value }}',{% endfor %}].includes(selectedTranslationEngine)) { selectedTranslationEngine = '{{ default_translation_value }}'; }">
           {% for e in translation_engines %}
           <button @click.prevent.stop="selectedTranslationEngine = '{{ e.value }}'; saveSettings()" 
@@ -1024,29 +1025,11 @@ these components in our help text and documentation.
             </svg>
             {% endif %}
           </button>
-          {% else %}
-          <button @click.prevent.stop="selectedTranslationEngine = '1'; saveSettings()" 
-                  class="ocr-engine-btn"
-                  :class="selectedTranslationEngine === '1' ? 'active' : ''">
-            Translation 1
-          </button>
-          <button @click.prevent.stop="selectedTranslationEngine = '2'; saveSettings()" 
-                  class="ocr-engine-btn"
-                  :class="selectedTranslationEngine === '2' ? 'active' : ''">
-            Translation 2
-          </button>
-          <button @click.prevent.stop="selectedTranslationEngine = '3'; saveSettings()" 
-                  class="ocr-engine-btn"
-                  :class="selectedTranslationEngine === '3' ? 'active' : ''">
-            Translation 3
-          </button>
-          <button @click.prevent.stop="selectedTranslationEngine = '4'; saveSettings()" 
-                  class="ocr-engine-btn"
-                  :class="selectedTranslationEngine === '4' ? 'active' : ''">
-            Translation 4
-          </button>
           {% endfor %}
         </div>
+        {% else %}
+        <p class="text-xs text-red-600">{{ _('Translation service unavailable') }}</p>
+        {% endif %}
       </li>
       <li class="mb-3 px-3 relative" :class="openSrc ? 'z-30' : 'z-20'" @click.outside="openSrc = false">
         <label class="block text-xs text-slate-500 mb-2 font-medium">{{ _('Source Language') }}</label>
@@ -1140,9 +1123,9 @@ these components in our help text and documentation.
       <li class="border-t border-slate-100 pt-2 px-3 pb-2">
         <button type="button"
                 class="w-full bg-slate-800 text-white rounded-lg py-2 text-sm transition-colors"
-                :class="(isRunningTranslation || !hasTranslatableContent) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-700'"
-                @click.prevent.stop="if (!hasTranslatableContent) return; runTranslation(selectedTranslationEngine, sourceLanguage, targetLanguage, selectedGlossaries); translationDropdownOpen=false"
-                :disabled="isRunningTranslation || !hasTranslatableContent"
+                :class="(isRunningTranslation || !hasTranslatableContent || {% if not translation_engines %}true{% else %}false{% endif %}) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-700'"
+                @click.prevent.stop="if (!hasTranslatableContent || {% if not translation_engines %}true{% else %}false{% endif %}) return; runTranslation(selectedTranslationEngine, sourceLanguage, targetLanguage, selectedGlossaries); translationDropdownOpen=false"
+                :disabled="isRunningTranslation || !hasTranslatableContent || {% if not translation_engines %}true{% else %}false{% endif %}"
                 x-text="isRunningTranslation ? '{{ _("Translating ...") }}' : (!hasTranslatableContent ? '{{ _("Run OCR First to Translate") }}' : '{{ _("Translate Page") }}')"></button>
       </li>
     </ul>

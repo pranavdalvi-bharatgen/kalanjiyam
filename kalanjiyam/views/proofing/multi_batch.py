@@ -202,8 +202,6 @@ def index():
 
     ocr_status = get_available_engines()
     available_ocr_engines = ocr_status.get("engines", []) if isinstance(ocr_status, dict) else (ocr_status or [])
-    if not available_ocr_engines:
-        available_ocr_engines = list(SUPPORTED_ENGINES)
 
     ocr_engine_choices = build_engine_choices(
         available_ocr_engines,

@@ -453,19 +453,33 @@ class TestAvailableTranslationEngines:
 
         with app.app_context():
             engines = get_available_translation_engines()
-            assert len(engines) == 4
+            assert len(engines) == 2
             assert engines[0]["value"] == "indictrans3"
             assert engines[0]["label"] == "IndicTrans v3"
             assert engines[1]["value"] == "indic_translate"
             assert engines[1]["label"] == "Indic-Translate"
-            assert engines[2]["value"] == "llm_gemma"
-            assert engines[2]["label"] == "LLM Gemma"
-            assert engines[3]["value"] == "param_translate"
-            assert engines[3]["label"] == "Param Translate"
 
             mock_client.get.assert_called_once()
             call_kwargs = mock_client.get.call_args[1]
-            assert call_kwargs["headers"] == {"X-API-Key": "test-api-key"}
+            assert call_kwargs["headers"] == {
+                "Authorization": "Bearer test-api-key",
+                "X-API-Key": "test-api-key",
+            }
+
+    @patch('httpx.Client')
+    def test_get_available_translation_engines_when_down(self, mock_client_class):
+        """When translation services are unreachable, return an empty list (no down models)."""
+        mock_client = Mock()
+        mock_client_class.return_value.__enter__.return_value = mock_client
+        mock_client.get.side_effect = RuntimeError("Connection refused")
+
+        from flask import Flask
+        app = Flask("test_app")
+        app.config["TRANSLATION_SERVICE_URL"] = "http://localhost:8888"
+
+        with app.app_context():
+            engines = get_available_translation_engines()
+            assert engines == []
 
 
 class TestTranslateTextFunction:
